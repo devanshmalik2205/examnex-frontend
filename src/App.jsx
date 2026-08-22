@@ -168,8 +168,8 @@ export default function App() {
 
     // Admin demo fallback
     if (loginRole === 'admin') {
-      const envAdminUser = import.meta.env?.VITE_ADMIN_USER || 'bmu_edu_in';
-      const envAdminPass = import.meta.env?.VITE_ADMIN_PASS || 'admin@bmu@edu@in';
+      const envAdminUser = import.meta.env.VITE_ADMIN_USER || 'bmu_edu_in';
+      const envAdminPass = import.meta.env.VITE_ADMIN_PASS || 'admin@bmu@edu@in';
       
       if (username === envAdminUser && password === envAdminPass) {
         processSuccessfulLogin('admin', { name: 'System Administrator' });
@@ -179,7 +179,7 @@ export default function App() {
     }
 
     try {
-      const backendUrl = import.meta.env?.VITE_BACKEND_URL || 'http://localhost:5000';
+      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
       const response = await fetch(`${backendUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
