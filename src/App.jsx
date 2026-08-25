@@ -13,9 +13,12 @@ import {
   Loader2,
   Lock,
   Sun,
-  Moon
+  Moon,
+  Layout,
+  TableProperties
 } from 'lucide-react';
 import PlasmaRing from "./components/originkit/ui/plasma-ring";
+import AdminTimetableViewer from './components/AdminTimetableViewer';
 
 const getInitialAuth = () => {
   try {
@@ -388,19 +391,73 @@ export default function App() {
 }
 
 function AdminDashboard() {
+  const [activeTab, setActiveTab] = useState('timetable'); // Set 'overview' to default to standard view if desired
+
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="space-y-6 max-w-[1600px] mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
+      
+      {/* App Level Tabs for Admin Navigation */}
+      <div className="flex items-center space-x-1 bg-slate-100/50 dark:bg-[#161616] p-1.5 rounded-2xl w-fit border border-slate-200 dark:border-white/5">
+        <button 
+          onClick={() => setActiveTab('overview')}
+          className={`flex items-center px-5 py-2.5 rounded-xl text-sm font-semibold transition-all ${activeTab === 'overview' ? 'bg-white dark:bg-[#222] text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
+        >
+          <Layout className="w-4 h-4 mr-2" /> Quick Overview
+        </button>
+        <button 
+          onClick={() => setActiveTab('timetable')}
+          className={`flex items-center px-5 py-2.5 rounded-xl text-sm font-semibold transition-all ${activeTab === 'timetable' ? 'bg-white dark:bg-[#222] text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
+        >
+          <TableProperties className="w-4 h-4 mr-2" /> Timetable Explorer
+        </button>
+      </div>
+
+      {activeTab === 'overview' ? <AdminOverview /> : <AdminTimetableViewer />}
+      
+    </div>
+  );
+}
+
+function AdminOverview() {
+  const [stats, setStats] = useState({ total_exams: 0, total_students: 0, total_rooms: 0, conflicts: 0 });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        const backendUrl = import.meta.env?.VITE_BACKEND_URL || 'http://localhost:5000';
+        const response = await fetch(`${backendUrl}/api/admin/stats`);
+        if (response.ok) {
+          const data = await response.json();
+          setStats(data);
+        }
+      } catch (err) {
+        console.error("Failed to fetch stats", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchStats();
+  }, []);
+
+  return (
+    <div className="space-y-6">
       <header>
         <h2 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white transition-colors">Examination Control Center</h2>
         <p className="text-slate-500 dark:text-slate-400 text-sm mt-1 transition-colors">Manage schedules, rooms, and allocations globally.</p>
       </header>
 
       {/* Quick Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon={<BookOpen />} title="Total Exams" value="142" color="blue" />
-        <StatCard icon={<Users />} title="Students Registered" value="3,240" color="emerald" />
-        <StatCard icon={<MapPin />} title="Rooms Available" value="45" color="purple" />
-        <StatCard icon={<AlertTriangle />} title="Unresolved Conflicts" value="2" color="red" />
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 relative">
+        {loading && (
+            <div className="absolute inset-0 bg-white/50 dark:bg-[#111]/50 backdrop-blur-sm z-10 flex items-center justify-center rounded-xl">
+                <Loader2 className="w-6 h-6 animate-spin text-blue-600 dark:text-blue-400" />
+            </div>
+        )}
+        <StatCard icon={<BookOpen />} title="Total Exams" value={stats.total_exams} color="blue" />
+        <StatCard icon={<Users />} title="Students Registered" value={stats.total_students.toLocaleString()} color="emerald" />
+        <StatCard icon={<MapPin />} title="Rooms Available" value={stats.total_rooms} color="purple" />
+        <StatCard icon={<AlertTriangle />} title="Unresolved Conflicts" value={stats.conflicts} color="red" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
