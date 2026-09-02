@@ -15,10 +15,13 @@ import {
   Sun,
   Moon,
   Layout,
-  TableProperties
+  TableProperties,
+  Search,
+  Bell
 } from 'lucide-react';
 import PlasmaRing from "./components/originkit/ui/plasma-ring";
 import AdminTimetableViewer from './components/AdminTimetableViewer';
+import AdminTeachers from './components/AdminTeachers';
 
 const getInitialAuth = () => {
   try {
@@ -69,6 +72,9 @@ export default function App() {
   const [userData, setUserData] = useState(authState.data);
   const [rememberMe, setRememberMe] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(getInitialTheme);
+
+  // Dashboard Nav State
+  const [activeTab, setActiveTab] = useState('dashboard');
 
   // Login Form State
   const [loginRole, setLoginRole] = useState('student');
@@ -202,6 +208,50 @@ export default function App() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const getNavItems = () => {
+    switch(userRole) {
+      case 'admin':
+        return [
+          { id: 'dashboard', label: 'Dashboard', icon: Layout },
+          { id: 'timetables', label: 'Timetables', icon: CalendarDays },
+          { id: 'teachers', label: 'Teachers', icon: Briefcase },
+          { id: 'students', label: 'Students', icon: Users },
+          { id: 'courses', label: 'Courses', icon: BookOpen },
+        ];
+      case 'faculty':
+        return [
+          { id: 'dashboard', label: 'Overview', icon: Layout },
+          { id: 'schedule', label: 'My Schedule', icon: CalendarDays },
+        ];
+      case 'student':
+        return [
+          { id: 'dashboard', label: 'My Portal', icon: Layout },
+          { id: 'timetable', label: 'Timetable', icon: CalendarDays },
+          { id: 'grades', label: 'Academics', icon: GraduationCap },
+        ];
+      default:
+        return [{ id: 'dashboard', label: 'Dashboard', icon: Layout }];
+    }
+  };
+
+  const renderActiveTabContent = () => {
+    if (userRole === 'admin' && activeTab === 'teachers') return <AdminTeachers />;
+    if (userRole === 'admin' && activeTab === 'timetables') return <AdminTimetableViewer />;
+    
+    if (activeTab === 'dashboard') {
+      if (userRole === 'admin') return <AdminDashboard />;
+      if (userRole === 'faculty') return <FacultyDashboard user={userData} />;
+      if (userRole === 'student') return <StudentDashboard user={userData} />;
+    }
+
+    return (
+      <div className="p-6 flex flex-col items-center justify-center h-[60vh] opacity-50">
+        <BookOpen className="w-16 h-16 mb-4 text-slate-400 dark:text-slate-600" />
+        <h2 className="text-xl font-semibold text-slate-500">Feature under construction</h2>
+      </div>
+    );
   };
 
   return (
@@ -341,48 +391,68 @@ export default function App() {
               </div>
             </div>
         ) : (
-          <div className="w-full flex flex-col flex-1">
-            {/* Top Navigation Bar */}
-            <nav className="bg-white dark:bg-[#111111] border-b border-slate-200 dark:border-white/10 sticky top-0 z-10 transition-colors">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                  <div className="flex justify-between h-16">
-                    <div className="flex items-center space-x-3">
-                      <div className="w-8 h-8 sm:w-10 sm:h-10 bg-blue-600 rounded-lg flex items-center justify-center shadow-sm">
-                        <CalendarDays className="text-white w-5 h-5 sm:w-6 sm:h-6" />
-                      </div>
-                      <span className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white transition-colors">EXAMNEX</span>
-                      <span className="hidden sm:inline-block ml-4 px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-300 uppercase tracking-wider transition-colors">
-                        {userRole} Portal
-                      </span>
+          <div className="w-full flex h-screen bg-[#1a1c23] dark:bg-black overflow-hidden transition-colors duration-300">
+            {/* Sidebar */}
+            <aside className="w-16 sm:w-20 md:w-64 flex flex-col items-center md:items-start py-4 sm:py-6 px-2 md:px-4 bg-[#1a1c23] dark:bg-[#111111] text-slate-400 transition-all z-20 shrink-0 border-r border-slate-200 dark:border-white/5 shadow-2xl">
+                <div className="flex items-center w-full justify-center md:justify-start mb-8 sm:mb-10 md:px-2">
+                    <div className="w-9 h-9 sm:w-10 sm:h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shrink-0 shadow-sm">
+                        <ShieldCheck className="w-5 h-5 sm:w-6 sm:h-6" />
                     </div>
-                    <div className="flex items-center space-x-2 sm:space-x-4">
-                    <button 
-                      onClick={toggleTheme}
-                      className="p-2 rounded-md text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors cursor-pointer"
-                      >
-                        {isDarkMode ? <Sun className="w-5 h-5 pointer-events-none" /> : <Moon className="w-5 h-5 pointer-events-none" />}
-                      </button>
-                      <span className="text-sm font-medium text-slate-700 dark:text-slate-300 hidden md:block border-l border-slate-200 dark:border-slate-700 pl-4 transition-colors">
-                        {userData?.name || userData?.username || 'Welcome'}
-                      </span>
-                      <button 
-                        onClick={handleLogout}
-                        className="flex items-center space-x-2 text-slate-500 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400 transition-colors px-2 sm:px-3 py-2 rounded-md text-sm font-medium hover:bg-red-50 dark:hover:bg-red-900/20"
-                      >
-                        <LogOut className="w-5 h-5 sm:w-4 sm:h-4" />
-                        <span className="hidden sm:block">Logout</span>
-                      </button>
-                    </div>
-                  </div>
+                    <span className="ml-3 hidden md:block text-xl font-bold text-white tracking-tight">ExamNex</span>
                 </div>
-              </nav>
+                
+                <nav className="flex-1 flex flex-col space-y-2 sm:space-y-4 w-full">
+                    {getNavItems().map(item => {
+                        const Icon = item.icon;
+                        const isActive = activeTab === item.id;
+                        return (
+                            <button
+                                key={item.id}
+                                onClick={() => setActiveTab(item.id)}
+                                className={`flex items-center w-full p-2.5 sm:p-3 rounded-xl transition-all group ${
+                                    isActive ? 'bg-white/10 text-white' : 'text-slate-400 hover:bg-white/5 hover:text-white'
+                                }`}
+                                title={item.label}
+                            >
+                                <Icon className={`w-5 h-5 shrink-0 md:mr-3 ${isActive ? 'text-blue-400' : 'group-hover:text-blue-400'}`} />
+                                <span className="hidden md:block text-sm font-medium">{item.label}</span>
+                            </button>
+                        );
+                    })}
+                </nav>
 
-              {/* Main Content Area */}
-              <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
-                {userRole === 'admin' && <AdminDashboard />}
-                {userRole === 'faculty' && <FacultyDashboard user={userData} />}
-                {userRole === 'student' && <StudentDashboard user={userData} />}
-              </main>
+                <div className="w-full pt-4 border-t border-white/10">
+                    <button 
+                        onClick={handleLogout}
+                        className="flex items-center w-full p-2.5 sm:p-3 rounded-xl transition-all text-slate-400 hover:bg-white/5 hover:text-red-400 group"
+                        title="Logout"
+                    >
+                        <LogOut className="w-5 h-5 shrink-0 md:mr-3" />
+                        <span className="hidden md:block text-sm font-medium">Logout</span>
+                    </button>
+                </div>
+            </aside>
+
+            {/* Main Content Area */}
+            <main className="flex-1 flex flex-col relative overflow-hidden bg-slate-50 dark:bg-[#0a0a0a]">
+                {/* Header specifically tailored to user request: ONLY Bell and Moon */}
+                <header className="h-16 sm:h-20 flex items-center justify-end px-6 sm:px-10 sticky top-0 z-10 bg-transparent">
+                  <div className="flex items-center space-x-3 sm:space-x-4">
+                    <button className="p-2.5 rounded-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-sm relative">
+                        <Bell className="w-4 h-4 sm:w-5 sm:h-5" />
+                        <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border border-white dark:border-[#111111]"></span>
+                    </button>
+                    
+                    <button onClick={toggleTheme} className="p-2.5 rounded-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-sm">
+                        {isDarkMode ? <Sun className="w-4 h-4 sm:w-5 sm:h-5" /> : <Moon className="w-4 h-4 sm:w-5 sm:h-5" />}
+                    </button>
+                  </div>
+                </header>
+
+                <div className="flex-1 overflow-auto p-4 sm:p-8 pt-0">
+                    {renderActiveTabContent()}
+                </div>
+            </main>
           </div>
         )}
       </div>

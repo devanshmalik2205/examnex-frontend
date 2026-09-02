@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
     Calendar, Users, BookOpen, Clock, MapPin, Search, 
     ChevronDown, LayoutDashboard, Loader2, Info, User,
-    Tag, Layers, Award
+    Tag, Layers, Award, FileSpreadsheet, AlertTriangle, CheckCircle, X, UploadCloud
 } from 'lucide-react';
 
 // Time slots based on official format
@@ -31,16 +31,13 @@ const formatTime = (timeStr) => {
     }
 };
 
-// Auto-assigns consistent colors to subjects based on string hash
 const getColorClass = (entry) => {
     const rawText = (entry.raw_entry || '').toLowerCase();
     
-    // Explicit overrides based on your reference image
     if (rawText.includes('mentor')) return 'bg-yellow-100 dark:bg-yellow-900/40 text-yellow-900 dark:text-yellow-100 border-yellow-300 dark:border-yellow-700/50 hover:bg-yellow-200 dark:hover:bg-yellow-800/60';
     if (rawText.includes('audit')) return 'bg-slate-50 dark:bg-[#1a1a1a] text-red-600 dark:text-red-400 border-red-200 dark:border-red-900/50 hover:bg-red-50 dark:hover:bg-red-900/20';
     if (rawText.includes('lunch')) return 'bg-slate-200 dark:bg-slate-800/50 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700/50';
 
-    // Hash generation for consistent dynamic colors
     const name = entry.course_code || entry.course_title || entry.raw_entry || '';
     let hash = 0;
     for (let i = 0; i < name.length; i++) {
@@ -102,27 +99,39 @@ export default function AdminTimetableViewer() {
     const [selectedSlot, setSelectedSlot] = useState(null);
     const [studentSearch, setStudentSearch] = useState('');
 
+    // Upload & Modification states
+    const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+    const [isUploading, setIsUploading] = useState(false);
+    const [uploadError, setUploadError] = useState(null);
+    const [previewData, setPreviewData] = useState(null);
+    const [isCommiting, setIsCommiting] = useState(false);
+    const fileInputRef = useRef(null);
+
     const backendUrl = import.meta.env?.VITE_BACKEND_URL || 'http://localhost:5000';
 
     useEffect(() => {
-        const fetchTimetables = async () => {
-            try {
-                const response = await fetch(`${backendUrl}/api/admin/timetables`);
-                if (!response.ok) throw new Error('Failed to fetch timetables');
-                const data = await response.json();
-                
-                const safeData = Array.isArray(data) ? data : [];
-                setTimetables(safeData);
-                
-                if (safeData.length > 0) setSelectedTimetable(safeData[0].id);
-            } catch (err) {
-                setError(err.message === 'Failed to fetch' ? `Cannot connect to backend (${backendUrl}).` : err.message);
-            } finally {
-                setInitialLoading(false);
-            }
-        };
         fetchTimetables();
-    }, [backendUrl]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    const fetchTimetables = async () => {
+        try {
+            const response = await fetch(`${backendUrl}/api/admin/timetables`);
+            if (!response.ok) throw new Error('Failed to fetch timetables');
+            const data = await response.json();
+            
+            const safeData = Array.isArray(data) ? data : [];
+            setTimetables(safeData);
+            
+            if (safeData.length > 0 && !selectedTimetable) {
+                setSelectedTimetable(safeData[0].id);
+            }
+        } catch (err) {
+            setError(err.message === 'Failed to fetch' ? `Cannot connect to backend.` : err.message);
+        } finally {
+            setInitialLoading(false);
+        }
+    };
 
     useEffect(() => {
         if (!selectedTimetable) return;
@@ -147,6 +156,64 @@ export default function AdminTimetableViewer() {
         fetchTimetableDetails();
     }, [selectedTimetable, backendUrl]);
 
+    const handleFileSelection = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        setUploadError(null);
+        setIsUploading(true);
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+            const res = await fetch(`${backendUrl}/api/admin/timetables/${selectedTimetable}/upload-preview`, {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!res.ok) throw new Error('Failed to process uploaded Excel file.');
+            
+            const data = await res.json();
+            setPreviewData(data);
+        } catch (err) {
+            setUploadError(err.message);
+        } finally {
+            setIsUploading(false);
+        }
+    };
+
+    const commitTimetableChanges = async () => {
+        if (!previewData || !previewData.preview) return;
+        setIsCommiting(true);
+        setUploadError(null);
+
+        try {
+            const res = await fetch(`${backendUrl}/api/admin/timetables/${selectedTimetable}/commit`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(previewData.preview)
+            });
+
+            if (!res.ok) throw new Error('Failed to commit modifications.');
+            
+            // Clean up and refresh UI
+            setIsUploadModalOpen(false);
+            setPreviewData(null);
+            if (fileInputRef.current) fileInputRef.current.value = "";
+            
+            // Re-fetch data for the active timetable
+            const refreshRes = await fetch(`${backendUrl}/api/admin/timetables/${selectedTimetable}`);
+            const newData = await refreshRes.json();
+            setTimetableData(newData || {});
+
+        } catch (err) {
+            setUploadError(err.message);
+        } finally {
+            setIsCommiting(false);
+        }
+    };
+
     const handleSlotClick = (groupArray) => {
         if (groupArray && groupArray.length > 0) setSelectedSlot(groupArray);
     };
@@ -163,7 +230,6 @@ export default function AdminTimetableViewer() {
     const safeTimetables = Array.isArray(timetables) ? timetables : [];
     const safeEntries = Array.isArray(timetableData?.entries) ? timetableData.entries : [];
     
-    // Group entries to prevent overlaps
     const ROW_DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
     const groupedEntries = {};
     
@@ -171,13 +237,11 @@ export default function AdminTimetableViewer() {
         const pos = getGridPosition(entry, ROW_DAYS);
         if (!pos) return;
         
-        // Group by exact Row and Column layout
         const key = `${pos.gridRow}_${pos.gridColumn}`;
         if (!groupedEntries[key]) groupedEntries[key] = { pos, entries: [] };
         groupedEntries[key].entries.push(entry);
     });
 
-    // Extract deduplicated teachers from the selected group array
     const safeTeachersMap = new Map();
     if (selectedSlot) {
         selectedSlot.forEach(entry => {
@@ -211,19 +275,28 @@ export default function AdminTimetableViewer() {
                     <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Select a configuration to view schedule, faculty, and linked students.</p>
                 </div>
                 
-                <div className="w-full sm:w-auto relative min-w-[280px]">
-                    <select
-                        value={selectedTimetable || ''}
-                        onChange={(e) => setSelectedTimetable(e.target.value)}
-                        className="w-full appearance-none bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white rounded-xl px-4 py-3 pr-10 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium cursor-pointer"
+                <div className="flex w-full sm:w-auto items-center gap-3">
+                    <div className="relative min-w-[280px] flex-1">
+                        <select
+                            value={selectedTimetable || ''}
+                            onChange={(e) => setSelectedTimetable(e.target.value)}
+                            className="w-full appearance-none bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white rounded-xl px-4 py-2.5 pr-10 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium cursor-pointer"
+                        >
+                            {safeTimetables.map((tt, idx) => (
+                                <option key={tt?.id || idx} value={tt?.id || ''} className="dark:bg-[#1a1a1a]">
+                                    Batch {tt?.batch_year || 'N/A'} - {tt?.stream || 'N/A'} (Sem {tt?.semester || 'N/A'})
+                                </option>
+                            ))}
+                        </select>
+                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500 pointer-events-none" />
+                    </div>
+                    
+                    <button 
+                        onClick={() => setIsUploadModalOpen(true)}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors flex items-center shadow-sm flex-shrink-0"
                     >
-                        {safeTimetables.map((tt, idx) => (
-                            <option key={tt?.id || idx} value={tt?.id || ''} className="dark:bg-[#1a1a1a]">
-                                Batch {tt?.batch_year || 'N/A'} - {tt?.stream || 'N/A'} (Sem {tt?.semester || 'N/A'})
-                            </option>
-                        ))}
-                    </select>
-                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500 pointer-events-none" />
+                        <FileSpreadsheet className="w-4 h-4 mr-2" /> Modify via Excel
+                    </button>
                 </div>
             </div>
 
@@ -248,13 +321,12 @@ export default function AdminTimetableViewer() {
                             className="min-w-[1200px] grid relative h-full"
                             style={{ 
                                 gridTemplateColumns: `80px repeat(${TIME_SLOTS.length}, minmax(130px, 1fr))`,
-                                gridAutoRows: 'minmax(80px, 1fr)' // Equal height boxes globally
+                                gridAutoRows: 'minmax(80px, 1fr)' 
                             }}
                         >
-                            {/* Top-Left Empty Corner */}
                             <div className="border-b border-r border-slate-200 dark:border-white/10 bg-slate-50/90 dark:bg-[#161616]/90 backdrop-blur-sm sticky top-0 left-0 z-30" />
                             
-                            {/* Column Headers (Time Slots) */}
+                            {/* Column Headers */}
                             {TIME_SLOTS.map((slot, i) => (
                                 <div 
                                     key={`head-${slot.id}`} 
@@ -265,10 +337,9 @@ export default function AdminTimetableViewer() {
                                 </div>
                             ))}
 
-                            {/* Row Headers (Days) & Empty Cell Outlines */}
+                            {/* Row Headers & Background Grid */}
                             {ROW_DAYS.map((day, dIdx) => (
                                 <React.Fragment key={`row-${day}`}>
-                                    {/* Sticky Day Column */}
                                     <div 
                                         className="border-b border-r border-slate-200 dark:border-white/10 bg-white/90 dark:bg-[#111]/90 backdrop-blur-sm p-3 flex items-center justify-center sticky left-0 z-20" 
                                         style={{ gridRow: dIdx + 2, gridColumn: 1 }}
@@ -276,7 +347,6 @@ export default function AdminTimetableViewer() {
                                         <span className="text-sm font-bold text-slate-500 dark:text-slate-400">{day}</span>
                                     </div>
                                     
-                                    {/* Background Grid Outlines */}
                                     {TIME_SLOTS.map((slot, sIdx) => (
                                         <div 
                                             key={`bg-${day}-${slot.id}`} 
@@ -287,19 +357,16 @@ export default function AdminTimetableViewer() {
                                 </React.Fragment>
                             ))}
 
-                            {/* Dynamically Grouped Entries rendering perfectly into cells */}
+                            {/* Dynamically Grouped Entries */}
                             {Object.values(groupedEntries).map((groupObj, idx) => {
                                 const { pos, entries } = groupObj;
                                 const isSelected = selectedSlot && entries.some(e => selectedSlot.find(s => s.entry_id === e.entry_id));
                                 
-                                // Process merged text using abbreviation primarily
                                 const displayNames = entries.map(e => e.abbreviation || e.course_code || e.raw_entry || 'Unassigned');
                                 const rooms = entries.map(e => e.room).filter(Boolean);
                                 
                                 const uniqueTitles = [...new Set(displayNames)].join(' / ');
                                 const uniqueRooms = [...new Set(rooms)].join(' / ');
-                                
-                                // Grab color based on first entry block
                                 const cardClasses = getColorClass(entries[0]);
 
                                 return (
@@ -344,7 +411,6 @@ export default function AdminTimetableViewer() {
                                     </span>
                                 </div>
                                 
-                                {/* Group distinct courses and show beautiful metadata tags */}
                                 <div className="space-y-3 max-h-[30vh] overflow-y-auto custom-scrollbar pr-2">
                                 {(() => {
                                     const uniqueCourses = [];
@@ -379,18 +445,6 @@ export default function AdminTimetableViewer() {
                                                 {course.course_type && (
                                                     <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border border-emerald-200/50 dark:border-emerald-800/50 capitalize">
                                                         {course.course_type}
-                                                    </span>
-                                                )}
-                                                {course.credits && (
-                                                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 border border-amber-200/50 dark:border-amber-800/50">
-                                                        <Award className="w-3 h-3 mr-1" />
-                                                        {course.credits} Cr
-                                                    </span>
-                                                )}
-                                                {course.ldp && (
-                                                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-cyan-50 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-400 border border-cyan-200/50 dark:border-cyan-800/50">
-                                                        <Layers className="w-3 h-3 mr-1" />
-                                                        L-T-P: {course.ldp}
                                                     </span>
                                                 )}
                                             </div>
@@ -448,7 +502,7 @@ export default function AdminTimetableViewer() {
                                 )}
                             </div>
 
-                            {/* Linked Students Search */}
+                            {/* Linked Students */}
                             <div>
                                 <div className="flex items-center justify-between mb-3">
                                     <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center">
@@ -499,6 +553,129 @@ export default function AdminTimetableViewer() {
                     )}
                 </div>
             </div>
+            
+            {isUploadModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm transition-opacity animate-in fade-in">
+                    <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden border border-slate-200 dark:border-white/10 shadow-2xl flex flex-col">
+                        <div className="flex justify-between items-center p-5 border-b border-slate-200 dark:border-white/5">
+                            <div>
+                                <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center">
+                                    <FileSpreadsheet className="w-5 h-5 mr-2 text-emerald-500" /> Excel Timetable Upload
+                                </h3>
+                                <p className="text-sm text-slate-500 mt-1">Upload a `.xlsx` or `.csv` file to extract subjects, teachers, and allocations automatically.</p>
+                            </div>
+                            <button onClick={() => { setIsUploadModalOpen(false); setPreviewData(null); }} className="text-slate-400 hover:text-slate-600 dark:hover:text-white"><X className="w-5 h-5"/></button>
+                        </div>
+                        
+                        <div className="flex-1 overflow-y-auto p-6 bg-slate-50/50 dark:bg-black/20 custom-scrollbar">
+                            {!previewData ? (
+                                <div className="h-full flex flex-col items-center justify-center space-y-4 py-8">
+                                    {uploadError && (
+                                        <div className="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 p-3 rounded-lg flex items-center text-sm w-full max-w-md">
+                                            <AlertTriangle className="w-4 h-4 mr-2 flex-shrink-0" /> {uploadError}
+                                        </div>
+                                    )}
+                                    <label className={`w-full max-w-md aspect-video border-2 border-dashed rounded-2xl flex flex-col items-center justify-center cursor-pointer transition-colors ${isUploading ? 'border-emerald-400 bg-emerald-50 dark:bg-emerald-900/20' : 'border-slate-300 dark:border-white/20 hover:border-emerald-500 hover:bg-slate-50 dark:hover:bg-white/5'}`}>
+                                        <input type="file" accept=".xlsx, .xls, .csv" className="hidden" ref={fileInputRef} onChange={handleFileSelection} disabled={isUploading} />
+                                        {isUploading ? (
+                                            <>
+                                                <Loader2 className="w-10 h-10 animate-spin text-emerald-500 mb-4" />
+                                                <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400">Parsing Spreadsheet Data...</p>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <UploadCloud className="w-12 h-12 text-slate-400 dark:text-slate-500 mb-4" />
+                                                <p className="text-base font-semibold text-slate-700 dark:text-slate-300">Click or drag Excel file to upload</p>
+                                                <p className="text-xs text-slate-500 mt-2">Required format: Day, StartTime, EndTime, CourseCode, Room, FacultyName</p>
+                                            </>
+                                        )}
+                                    </label>
+                                </div>
+                            ) : (
+                                <div className="space-y-6">
+                                    {previewData.overwrites?.total_entries_deleted > 0 && (
+                                        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-xl p-4 flex items-start shadow-sm">
+                                            <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 mr-3 mt-0.5 flex-shrink-0" />
+                                            <div>
+                                                <h4 className="text-sm font-bold text-amber-900 dark:text-amber-200">Overwrite Warning</h4>
+                                                <p className="text-sm text-amber-700 dark:text-amber-400 mt-1">Applying this schema will completely replace the existing <strong>{previewData.overwrites.total_entries_deleted} entries</strong> for the currently selected timetable.</p>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        <div className="bg-white dark:bg-[#111] border border-slate-200 dark:border-white/10 rounded-xl p-4 shadow-sm">
+                                            <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center mb-3">
+                                                <BookOpen className="w-4 h-4 mr-2 text-indigo-500" /> Parsed Courses ({previewData.preview.courses?.length || 0})
+                                            </h4>
+                                            <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar">
+                                                {(previewData.preview.courses || []).map((c, i) => (
+                                                    <div key={i} className="text-sm p-2 rounded-lg bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/5">
+                                                        <p className="font-semibold text-slate-800 dark:text-slate-200">{c.course_title}</p>
+                                                        <p className="text-xs text-slate-500">{c.course_code} • {c.category}</p>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        <div className="bg-white dark:bg-[#111] border border-slate-200 dark:border-white/10 rounded-xl p-4 shadow-sm">
+                                            <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center mb-3">
+                                                <Users className="w-4 h-4 mr-2 text-emerald-500" /> Parsed Faculty Linkages ({previewData.preview.teachers?.length || 0})
+                                            </h4>
+                                            <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar">
+                                                {(previewData.preview.teachers || []).map((t, i) => (
+                                                    <div key={i} className="text-sm p-2 rounded-lg bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/5 flex justify-between items-center">
+                                                        <div>
+                                                            <p className="font-semibold text-slate-800 dark:text-slate-200">{t.full_name}</p>
+                                                            <p className="text-xs text-slate-500">{t.email}</p>
+                                                        </div>
+                                                        <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-2 py-1 rounded">
+                                                            {t.linked_course_code}
+                                                        </span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-white dark:bg-[#111] border border-slate-200 dark:border-white/10 rounded-xl p-4 shadow-sm">
+                                        <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center mb-3">
+                                            <Calendar className="w-4 h-4 mr-2 text-blue-500" /> Extracted Timetable Slots ({previewData.preview.entries?.length || 0})
+                                        </h4>
+                                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 max-h-48 overflow-y-auto custom-scrollbar">
+                                            {(previewData.preview.entries || []).map((e, i) => (
+                                                <div key={i} className="text-xs p-2.5 rounded-lg bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/5">
+                                                    <div className="font-bold text-slate-700 dark:text-slate-300 mb-0.5">{e.day_of_week} • {e.start_time.substring(0,5)}</div>
+                                                    <div className="text-indigo-600 dark:text-indigo-400 font-semibold truncate" title={e.course_code || e.raw_entry}>{e.course_code || e.raw_entry}</div>
+                                                    <div className="text-slate-500 mt-1 flex items-center"><MapPin className="w-3 h-3 inline mr-1 flex-shrink-0"/> <span className="truncate">{e.room}</span></div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="p-5 border-t border-slate-200 dark:border-white/5 bg-white dark:bg-[#1a1a1a] flex justify-end gap-3">
+                            <button 
+                                onClick={() => { setIsUploadModalOpen(false); setPreviewData(null); }} 
+                                className="px-5 py-2.5 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5 rounded-xl font-medium transition-colors"
+                                disabled={isCommiting}
+                            >
+                                Cancel
+                            </button>
+                            <button 
+                                onClick={commitTimetableChanges} 
+                                disabled={!previewData || isCommiting}
+                                className={`px-5 py-2.5 rounded-xl font-medium flex items-center shadow-sm transition-all ${!previewData || isCommiting ? 'bg-slate-300 dark:bg-slate-700 text-slate-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}
+                            >
+                                {isCommiting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-2" />}
+                                Commit Changes to Database
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
             
             <style dangerouslySetInnerHTML={{__html: `
                 .no-scrollbar::-webkit-scrollbar { display: none; }
