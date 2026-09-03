@@ -22,6 +22,8 @@ import {
 import PlasmaRing from "./components/originkit/ui/plasma-ring";
 import AdminTimetableViewer from './components/AdminTimetableViewer';
 import AdminTeachers from './components/AdminTeachers';
+import AdminStudents from './components/AdminStudents';
+import AdminCourses from './components/AdminCourses'; // <-- Added Import
 
 const getInitialAuth = () => {
   try {
@@ -39,11 +41,9 @@ const getInitialAuth = () => {
         }
     };
 
-    // 1. Check Session Storage first (For users who didn't click remember me, persists on refresh)
     const sessionAuth = checkExpiryAndReturn(sessionStorage.getItem('examnex_auth'), 'session');
     if (sessionAuth) return sessionAuth;
 
-    // 2. Check Local Storage (For "Remember Me" users, persists across tab closes)
     const localAuth = checkExpiryAndReturn(localStorage.getItem('examnex_auth'), 'local');
     if (localAuth) return localAuth;
 
@@ -63,7 +63,7 @@ const getInitialTheme = () => {
   } catch (e) {
       console.warn("Theme retrieval failed", e);
   }
-  return false; // Default to light if nothing is found to verify fix
+  return false; 
 };
 
 export default function App() {
@@ -83,7 +83,6 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // This explicitly fights environmental overrides by applying the class directly and cleaning up stray dark classes
   useEffect(() => {
     const root = document.documentElement;
     const body = document.body;
@@ -126,7 +125,6 @@ export default function App() {
     } catch (e) {}
   };
 
-  // Monitor 24-hour Expiry continuously in the background
   useEffect(() => {
     const checkExpiry = () => {
       try {
@@ -145,7 +143,7 @@ export default function App() {
     };
     
     checkExpiry();
-    const interval = setInterval(checkExpiry, 60000); // Check every minute automatically
+    const interval = setInterval(checkExpiry, 60000);
     return () => clearInterval(interval);
   }, []);
 
@@ -156,7 +154,7 @@ export default function App() {
     const sessionData = {
       role: role,
       data: data,
-      expiry: Date.now() + (24 * 60 * 60 * 1000) // 24 hours exact
+      expiry: Date.now() + (24 * 60 * 60 * 1000) 
     };
 
     try {
@@ -175,7 +173,6 @@ export default function App() {
     setIsLoading(true);
     setError('');
 
-    // Admin demo fallback
     if (loginRole === 'admin') {
       const envAdminUser = import.meta.env?.VITE_ADMIN_USER || 'bmu_edu_in';
       const envAdminPass = import.meta.env?.VITE_ADMIN_PASS || 'admin@bmu@edu@in';
@@ -210,7 +207,7 @@ export default function App() {
     }
   };
 
-  const getNavItems = () => {
+const getNavItems = () => {
     switch(userRole) {
       case 'admin':
         return [
@@ -218,7 +215,7 @@ export default function App() {
           { id: 'timetables', label: 'Timetables', icon: CalendarDays },
           { id: 'teachers', label: 'Teachers', icon: Briefcase },
           { id: 'students', label: 'Students', icon: Users },
-          { id: 'courses', label: 'Courses', icon: BookOpen },
+          { id: 'courses', label: 'Courses', icon: BookOpen }, // Verified Courses is here
         ];
       case 'faculty':
         return [
@@ -236,9 +233,11 @@ export default function App() {
     }
   };
 
-  const renderActiveTabContent = () => {
+const renderActiveTabContent = () => {
+    if (userRole === 'admin' && activeTab === 'students') return <AdminStudents />;
     if (userRole === 'admin' && activeTab === 'teachers') return <AdminTeachers />;
     if (userRole === 'admin' && activeTab === 'timetables') return <AdminTimetableViewer />;
+    if (userRole === 'admin' && activeTab === 'courses') return <AdminCourses />; // <-- Render AdminCourses
     
     if (activeTab === 'dashboard') {
       if (userRole === 'admin') return <AdminDashboard />;
@@ -259,10 +258,8 @@ export default function App() {
       <div className="w-full min-h-screen text-slate-900 dark:text-gray-100 flex flex-col bg-slate-50 dark:bg-[#0a0a0a] transition-colors duration-300">
           {!userRole ? (
             <div className="flex-1 flex items-center justify-center p-4 sm:p-6 lg:p-8">
-              {/* Main Card */}
               <div className="w-full max-w-[1200px] min-h-[600px] lg:min-h-[700px] bg-white dark:bg-[#111111] rounded-[2rem] lg:rounded-[2.5rem] shadow-2xl flex flex-col lg:flex-row p-3 relative transition-colors duration-300 border border-slate-200 dark:border-white/5">
                 
-                {/* LEFT SIDE - VISUAL */}
                 <div className="hidden lg:flex flex-col relative w-1/2 rounded-[1.8rem] lg:rounded-[2.2rem] overflow-hidden bg-black p-10 lg:p-14">
                   <div className="flex-1 w-full relative flex items-center justify-center z-10">
                     <div className="absolute inset-0 flex items-center justify-center">
@@ -280,10 +277,8 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* RIGHT SIDE - FORM */}
                 <div className="w-full lg:w-1/2 flex flex-col items-center justify-center px-6 py-12 sm:px-12 lg:px-20 relative">
                   
-                  {/* Theme Toggle */}
                   <button 
                     onClick={toggleTheme}
                     className="absolute top-6 right-6 lg:top-8 lg:right-8 z-[100] p-3 rounded-full bg-slate-100 dark:bg-white/5 text-gray-600 dark:text-gray-400 hover:bg-slate-200 dark:hover:bg-white/10 transition-all border border-slate-200 dark:border-white/5 shadow-sm cursor-pointer"
@@ -392,7 +387,6 @@ export default function App() {
             </div>
         ) : (
           <div className="w-full flex h-screen bg-[#1a1c23] dark:bg-black overflow-hidden transition-colors duration-300">
-            {/* Sidebar */}
             <aside className="w-16 sm:w-20 md:w-64 flex flex-col items-center md:items-start py-4 sm:py-6 px-2 md:px-4 bg-[#1a1c23] dark:bg-[#111111] text-slate-400 transition-all z-20 shrink-0 border-r border-slate-200 dark:border-white/5 shadow-2xl">
                 <div className="flex items-center w-full justify-center md:justify-start mb-8 sm:mb-10 md:px-2">
                     <div className="w-9 h-9 sm:w-10 sm:h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shrink-0 shadow-sm">
@@ -433,9 +427,7 @@ export default function App() {
                 </div>
             </aside>
 
-            {/* Main Content Area */}
             <main className="flex-1 flex flex-col relative overflow-hidden bg-slate-50 dark:bg-[#0a0a0a]">
-                {/* Header specifically tailored to user request: ONLY Bell and Moon */}
                 <header className="h-16 sm:h-20 flex items-center justify-end px-6 sm:px-10 sticky top-0 z-10 bg-transparent">
                   <div className="flex items-center space-x-3 sm:space-x-4">
                     <button className="p-2.5 rounded-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-sm relative">
@@ -461,12 +453,10 @@ export default function App() {
 }
 
 function AdminDashboard() {
-  const [activeTab, setActiveTab] = useState('timetable'); // Set 'overview' to default to standard view if desired
+  const [activeTab, setActiveTab] = useState('overview'); 
 
   return (
     <div className="space-y-6 max-w-[1600px] mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
-      
-      {/* App Level Tabs for Admin Navigation */}
       <div className="flex items-center space-x-1 bg-slate-100/50 dark:bg-[#161616] p-1.5 rounded-2xl w-fit border border-slate-200 dark:border-white/5">
         <button 
           onClick={() => setActiveTab('overview')}
@@ -483,7 +473,6 @@ function AdminDashboard() {
       </div>
 
       {activeTab === 'overview' ? <AdminOverview /> : <AdminTimetableViewer />}
-      
     </div>
   );
 }
@@ -517,7 +506,6 @@ function AdminOverview() {
         <p className="text-slate-500 dark:text-slate-400 text-sm mt-1 transition-colors">Manage schedules, rooms, and allocations globally.</p>
       </header>
 
-      {/* Quick Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 relative">
         {loading && (
             <div className="absolute inset-0 bg-white/50 dark:bg-[#111]/50 backdrop-blur-sm z-10 flex items-center justify-center rounded-xl">
