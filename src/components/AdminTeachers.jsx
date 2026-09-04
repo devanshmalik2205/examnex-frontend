@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
     Plus, Edit2, Trash2, BookOpen, X, Loader2, Search, 
-    FileSpreadsheet, UploadCloud, AlertTriangle, CheckCircle 
+    FileSpreadsheet, UploadCloud, AlertTriangle, CheckCircle, Users
 } from 'lucide-react';
 
 export default function AdminTeachers() {
@@ -129,6 +129,7 @@ export default function AdminTeachers() {
       });
       if (res.ok) {
         setAllocationModalOpen(false);
+        fetchTeachers(); // Refresh allocations on main table
       } else {
         alert('Failed to save allocations.');
       }
@@ -204,7 +205,6 @@ export default function AdminTeachers() {
 
           if (!res.ok) throw new Error('Failed to commit modifications.');
           
-          // Clean up and refresh UI
           setIsUploadModalOpen(false);
           setPreviewData(null);
           if (fileInputRef.current) fileInputRef.current.value = "";
@@ -217,11 +217,39 @@ export default function AdminTeachers() {
       }
   };
 
-
   const filteredTeachers = teachers.filter(t => 
     t.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
     t.email?.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  // Group allocations for visually pleasing unified UI
+  const renderAllocations = (allocations) => {
+    if (!allocations || allocations.length === 0) return <span className="text-slate-400 text-xs italic">No allocations yet</span>;
+    
+    const grouped = {};
+    allocations.forEach(a => {
+        const title = a.course_title || a.course_code;
+        if (!grouped[title]) grouped[title] = new Set();
+        grouped[title].add(`${a.stream} (Sem ${a.semester})`);
+    });
+
+    return (
+        <div className="flex flex-col gap-2 max-h-32 overflow-y-auto custom-scrollbar pr-2 w-full max-w-[400px]">
+            {Object.entries(grouped).map(([title, sections], i) => (
+                <div key={i} className="text-xs bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/5 rounded-lg p-2">
+                    <span className="font-semibold text-slate-700 dark:text-slate-200 block mb-1">{title}</span>
+                    <div className="flex flex-wrap gap-1.5">
+                        {Array.from(sections).map((sec, j) => (
+                            <span key={j} className="px-1.5 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800/50 rounded-md text-[10px] font-medium shadow-sm">
+                                {sec}
+                            </span>
+                        ))}
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+  };
 
   return (
     <div className="p-4 sm:p-6 w-full max-w-7xl mx-auto space-y-6">
@@ -229,7 +257,7 @@ export default function AdminTeachers() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Teachers Management</h1>
-          <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">Manage faculty, update profiles, and allocate subjects.</p>
+          <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">Manage faculty, update profiles, and view allocations.</p>
         </div>
         <div className="flex w-full sm:w-auto items-center gap-3">
           <button 
@@ -268,26 +296,27 @@ export default function AdminTeachers() {
                 <th className="p-4">Name</th>
                 <th className="p-4">Email</th>
                 <th className="p-4">Type</th>
+                <th className="p-4">Allocated Subjects & Classes</th>
                 <th className="p-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 dark:divide-white/5">
               {loading ? (
                 <tr>
-                  <td colSpan="4" className="p-8 text-center text-slate-500"><Loader2 className="w-6 h-6 animate-spin mx-auto" /></td>
+                  <td colSpan="5" className="p-8 text-center text-slate-500"><Loader2 className="w-6 h-6 animate-spin mx-auto" /></td>
                 </tr>
               ) : filteredTeachers.length === 0 ? (
                 <tr>
-                  <td colSpan="4" className="p-8 text-center text-slate-500">No teachers found.</td>
+                  <td colSpan="5" className="p-8 text-center text-slate-500">No teachers found.</td>
                 </tr>
               ) : (
                 filteredTeachers.map(teacher => (
                   <tr key={teacher.id} className="hover:bg-slate-50 dark:hover:bg-slate-900/30 transition-colors">
                     <td className="p-4 font-medium text-slate-900 dark:text-white flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-600 flex items-center justify-center font-bold text-sm">
+                      <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-600 flex items-center justify-center font-bold text-sm shrink-0">
                         {teacher.full_name?.charAt(0) || '?'}
                       </div>
-                      {teacher.full_name}
+                      <span className="truncate max-w-[150px]">{teacher.full_name}</span>
                     </td>
                     <td className="p-4 text-slate-600 dark:text-slate-300">{teacher.email}</td>
                     <td className="p-4">
@@ -295,7 +324,10 @@ export default function AdminTeachers() {
                         {teacher.teacher_type}
                       </span>
                     </td>
-                    <td className="p-4 text-right space-x-2 flex justify-end">
+                    <td className="p-4 align-top">
+                        {renderAllocations(teacher.allocations)}
+                    </td>
+                    <td className="p-4 text-right space-x-2 flex justify-end items-start h-full pt-6">
                       <button 
                         onClick={() => openAllocationModal(teacher)}
                         className="p-2 text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-900/30 rounded-lg transition-colors"
@@ -507,14 +539,14 @@ export default function AdminTeachers() {
                               <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center mb-3">
                                   <Users className="w-4 h-4 mr-2 text-indigo-500" /> Parsed Faculty ({previewData.preview.teachers?.length || 0})
                               </h4>
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-64 overflow-y-auto custom-scrollbar">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-64 overflow-y-auto custom-scrollbar pr-2">
                                   {(previewData.preview.teachers || []).map((t, i) => (
                                       <div key={i} className={`text-sm p-3 rounded-lg border flex justify-between items-center ${t.is_update ? 'bg-amber-50/50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800/50' : 'bg-slate-50 dark:bg-white/5 border-slate-100 dark:border-white/5'}`}>
-                                          <div>
+                                          <div className="overflow-hidden mr-2">
                                               <p className="font-semibold text-slate-800 dark:text-slate-200 truncate">{t.full_name}</p>
                                               <p className="text-xs text-slate-500 truncate">{t.email}</p>
                                           </div>
-                                          <div className="flex flex-col items-end gap-1">
+                                          <div className="flex flex-col items-end gap-1 shrink-0">
                                             <span className="text-[10px] font-bold uppercase text-slate-400">{t.teacher_type}</span>
                                             {t.is_update && <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/30 px-1.5 rounded">UPDATE</span>}
                                           </div>
