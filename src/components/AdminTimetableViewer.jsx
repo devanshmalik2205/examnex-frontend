@@ -3,7 +3,7 @@ import {
     Calendar, Users, BookOpen, Clock, MapPin, Search, 
     ChevronDown, LayoutDashboard, Loader2, Info, User,
     Tag, Layers, Award, FileSpreadsheet, AlertTriangle, 
-    CheckCircle, X, UploadCloud, Plus, Trash2, Edit2, Check
+    CheckCircle, X, UploadCloud, Plus, Trash2, Edit2, Check, Globe
 } from 'lucide-react';
 
 // Time slots based on official format
@@ -40,6 +40,7 @@ const getColorClass = (entry) => {
         return 'bg-amber-100 dark:bg-amber-900/40 text-amber-900 dark:text-amber-100 border-amber-300 dark:border-amber-700/50 flex items-center justify-center';
     }
 
+    if (rawText.includes('minor') || entry.course_type === 'minor' || entry.category?.toLowerCase().includes('minor')) return 'bg-teal-100 dark:bg-teal-900/40 text-teal-900 dark:text-teal-100 border-teal-300 dark:border-teal-700/50 hover:bg-teal-200 dark:hover:bg-teal-800/60';
     if (rawText.includes('mentor')) return 'bg-yellow-100 dark:bg-yellow-900/40 text-yellow-900 dark:text-yellow-100 border-yellow-300 dark:border-yellow-700/50 hover:bg-yellow-200 dark:hover:bg-yellow-800/60';
     if (rawText.includes('audit')) return 'bg-slate-50 dark:bg-[#1a1a1a] text-red-600 dark:text-red-400 border-red-200 dark:border-red-900/50 hover:bg-red-50 dark:hover:bg-red-900/20';
 
@@ -56,9 +57,8 @@ const getColorClass = (entry) => {
         'bg-purple-50/90 dark:bg-purple-900/30 border-purple-200 dark:border-purple-700/50 text-purple-900 dark:text-purple-100 hover:bg-purple-100 dark:hover:bg-purple-900/50',
         'bg-pink-50/90 dark:bg-pink-900/30 border-pink-200 dark:border-pink-700/50 text-pink-900 dark:text-pink-100 hover:bg-pink-100 dark:hover:bg-pink-900/50',
         'bg-indigo-50/90 dark:bg-indigo-900/30 border-indigo-200 dark:border-indigo-700/50 text-indigo-900 dark:text-indigo-100 hover:bg-indigo-100 dark:hover:bg-indigo-900/50',
-        'bg-teal-50/90 dark:bg-teal-900/30 border-teal-200 dark:border-teal-700/50 text-teal-900 dark:text-teal-100 hover:bg-teal-100 dark:hover:bg-teal-900/50',
-        'bg-orange-50/90 dark:bg-orange-900/30 border-orange-200 dark:border-orange-700/50 text-orange-900 dark:text-orange-100 hover:bg-orange-100 dark:hover:bg-orange-900/50',
-        'bg-cyan-50/90 dark:bg-cyan-900/30 border-cyan-200 dark:border-cyan-700/50 text-cyan-900 dark:text-cyan-100 hover:bg-cyan-100 dark:hover:bg-cyan-900/50'
+        'bg-cyan-50/90 dark:bg-cyan-900/30 border-cyan-200 dark:border-cyan-700/50 text-cyan-900 dark:text-cyan-100 hover:bg-cyan-100 dark:hover:bg-cyan-900/50',
+        'bg-orange-50/90 dark:bg-orange-900/30 border-orange-200 dark:border-orange-700/50 text-orange-900 dark:text-orange-100 hover:bg-orange-100 dark:hover:bg-orange-900/50'
     ];
     return palette[hash % palette.length];
 };
@@ -110,6 +110,7 @@ export default function AdminTimetableViewer() {
 
     // Upload & Modification states
     const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+    const [isGlobalImport, setIsGlobalImport] = useState(false); 
     const [targetTimetableId, setTargetTimetableId] = useState(''); 
     const [isUploading, setIsUploading] = useState(false);
     const [uploadError, setUploadError] = useState(null);
@@ -226,8 +227,9 @@ export default function AdminTimetableViewer() {
         }
     };
 
-    const openUploadModal = () => {
+    const openUploadModal = (isGlobal = false) => {
         setTargetTimetableId(selectedTimetable); 
+        setIsGlobalImport(isGlobal);
         setIsUploadModalOpen(true);
     };
 
@@ -247,9 +249,8 @@ export default function AdminTimetableViewer() {
                 body: formData
             });
 
-            if (!res.ok) throw new Error('Failed to process uploaded Excel file.');
-            
             const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed to process uploaded Excel file.');
             setPreviewData(data);
         } catch (err) {
             setUploadError(err.message);
@@ -267,14 +268,18 @@ export default function AdminTimetableViewer() {
             const res = await fetch(`${backendUrl}/api/admin/timetables/${targetTimetableId}/commit`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(previewData.preview)
+                body: JSON.stringify({ ...previewData.preview, isGlobalImport })
             });
 
-            if (!res.ok) throw new Error('Failed to commit modifications.');
+            const data = await res.json();
+            
+            if (!res.ok) {
+                throw new Error(data.error || 'Failed to commit modifications. The server rejected the data.');
+            }
             
             resetPreviewStates();
             
-            if (targetTimetableId === selectedTimetable) {
+            if (targetTimetableId === selectedTimetable || isGlobalImport) {
                 const refreshRes = await fetch(`${backendUrl}/api/admin/timetables/${selectedTimetable}`);
                 const newData = await refreshRes.json();
                 setTimetableData(newData || {});
@@ -293,11 +298,11 @@ export default function AdminTimetableViewer() {
         setEditingCourseIdx(null);
         setEditingAllocIdx(null);
         setEditingEntryIdx(null);
+        setIsGlobalImport(false);
         if (fileInputRef.current) fileInputRef.current.value = "";
     }
 
     // --- Inline Editing Handlers ---
-    
     const startEditCourse = (idx, course) => { setEditingCourseIdx(idx); setCourseEditForm({ ...course }); };
     const saveCourseEdit = (idx) => {
         const updated = { ...previewData };
@@ -314,8 +319,7 @@ export default function AdminTimetableViewer() {
     const startEditAlloc = (idx, alloc) => { setEditingAllocIdx(idx); setAllocEditForm({ ...alloc }); };
     const saveAllocEdit = (idx) => {
         const updated = { ...previewData };
-        // Clean email forcefully on manual save (allow user's manual dots, but append domain)
-        const emailPrefix = allocEditForm.faculty_email.split('@')[0].trim().toLowerCase();
+        const emailPrefix = allocEditForm.faculty_email.split('@')[0].trim().replace(/\s+/g, '.').toLowerCase();
         const enforcedEmail = `${emailPrefix}@bmu.edu.in`;
         updated.preview.allocations[idx] = { ...allocEditForm, faculty_email: enforcedEmail };
         setPreviewData(updated);
@@ -345,7 +349,7 @@ export default function AdminTimetableViewer() {
         if (groupArray && groupArray.length > 0 && groupArray[0].raw_entry !== 'LUNCH' && groupArray[0].entry_type !== 'LUNCH') {
             setSelectedSlot(groupArray);
         } else {
-            setSelectedSlot(null); // Don't show side panel for lunch
+            setSelectedSlot(null); 
         }
     };
 
@@ -364,10 +368,12 @@ export default function AdminTimetableViewer() {
     const ROW_DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
     const groupedEntries = {};
     
+    // Improved Grouping: Merge entries that share the EXACT same time slot, even if they are different minor subjects
     safeEntries.forEach(entry => {
         const pos = getGridPosition(entry, ROW_DAYS);
         if (!pos) return;
         
+        // Use Grid Row & Column as the unique key to fuse parallel minor sessions visually
         const key = `${pos.gridRow}_${pos.gridColumn}`;
         if (!groupedEntries[key]) groupedEntries[key] = { pos, entries: [] };
         groupedEntries[key].entries.push(entry);
@@ -444,11 +450,20 @@ export default function AdminTimetableViewer() {
                     </div>
                     
                     <button 
-                        onClick={openUploadModal}
+                        onClick={() => openUploadModal(false)}
                         disabled={!selectedTimetable && safeTimetables.length === 0}
-                        className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-400 disabled:cursor-not-allowed text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors flex items-center justify-center shadow-sm flex-shrink-0"
+                        className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors flex items-center justify-center shadow-sm flex-shrink-0"
                     >
-                        <FileSpreadsheet className="w-4 h-4 mr-2" /> Import Data
+                        <FileSpreadsheet className="w-4 h-4 mr-2" /> Class Import
+                    </button>
+                    
+                    <button 
+                        onClick={() => openUploadModal(true)}
+                        disabled={!selectedTimetable && safeTimetables.length === 0}
+                        className="w-full sm:w-auto bg-purple-600 hover:bg-purple-700 disabled:bg-slate-400 disabled:cursor-not-allowed text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors flex items-center justify-center shadow-sm flex-shrink-0"
+                        title="Import Minors/Open Electives for all classes in this Batch Year and Semester"
+                    >
+                        <Globe className="w-4 h-4 mr-2" /> Batch Import
                     </button>
                 </div>
             </div>
@@ -774,9 +789,14 @@ export default function AdminTimetableViewer() {
                         <div className="flex justify-between items-center p-5 border-b border-slate-200 dark:border-white/5">
                             <div>
                                 <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center">
-                                    <FileSpreadsheet className="w-5 h-5 mr-2 text-emerald-500" /> Import Section Data
+                                    {isGlobalImport ? <Globe className="w-5 h-5 mr-2 text-purple-500" /> : <FileSpreadsheet className="w-5 h-5 mr-2 text-emerald-500" />} 
+                                    {isGlobalImport ? 'Global Batch Import (Minors/Open Electives)' : 'Import Section Data'}
                                 </h3>
-                                <p className="text-sm text-slate-500 mt-1">Upload an Excel file to extract courses, assign faculty, and map timetable slots.</p>
+                                <p className="text-sm text-slate-500 mt-1">
+                                    {isGlobalImport 
+                                        ? "This upload will inject these courses and time slots into ALL classes sharing the same Batch Year and Semester." 
+                                        : "Upload an Excel file to extract courses, assign faculty, and map timetable slots."}
+                                </p>
                             </div>
                             <button onClick={resetPreviewStates} className="text-slate-400 hover:text-slate-600 dark:hover:text-white"><X className="w-5 h-5"/></button>
                         </div>
@@ -784,7 +804,7 @@ export default function AdminTimetableViewer() {
                         <div className="flex-1 overflow-y-auto p-6 bg-slate-50/50 dark:bg-black/20 custom-scrollbar">
                             
                             {!previewData && (
-                                <div className="mb-6 bg-slate-50 dark:bg-[#111] p-4 rounded-xl border border-slate-200 dark:border-white/10">
+                                <div className={`mb-6 p-4 rounded-xl border ${isGlobalImport ? 'bg-purple-50 dark:bg-purple-900/10 border-purple-200 dark:border-purple-800/50' : 'bg-slate-50 dark:bg-[#111] border-slate-200 dark:border-white/10'}`}>
                                     <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Target Class for Import <span className="text-red-500">*</span></label>
                                     <select 
                                         value={targetTimetableId || ''} 
@@ -798,7 +818,11 @@ export default function AdminTimetableViewer() {
                                             </option>
                                         ))}
                                     </select>
-                                    <p className="text-xs text-slate-500 mt-2">The curriculum, allocations, and schedule uploaded will be specifically mapped to this class.</p>
+                                    <p className="text-xs text-slate-500 mt-2">
+                                        {isGlobalImport 
+                                            ? "Select ANY class from the target batch. The system will find the Batch Year & Semester and apply this upload to ALL matching classes." 
+                                            : "The curriculum, allocations, and schedule uploaded will be specifically mapped to this class only."}
+                                    </p>
                                 </div>
                             )}
 
@@ -809,12 +833,12 @@ export default function AdminTimetableViewer() {
                                             <AlertTriangle className="w-4 h-4 mr-2 flex-shrink-0" /> {uploadError}
                                         </div>
                                     )}
-                                    <label className={`w-full max-w-md aspect-video border-2 border-dashed rounded-2xl flex flex-col items-center justify-center ${targetTimetableId ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'} transition-colors ${isUploading ? 'border-emerald-400 bg-emerald-50 dark:bg-emerald-900/20' : 'border-slate-300 dark:border-white/20 hover:border-emerald-500 hover:bg-slate-50 dark:hover:bg-white/5'}`}>
+                                    <label className={`w-full max-w-md aspect-video border-2 border-dashed rounded-2xl flex flex-col items-center justify-center ${targetTimetableId ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'} transition-colors ${isUploading ? 'border-emerald-400 bg-emerald-50 dark:bg-emerald-900/20' : (isGlobalImport ? 'border-purple-300 dark:border-purple-800 hover:border-purple-500 hover:bg-purple-50 dark:hover:bg-purple-900/10' : 'border-slate-300 dark:border-white/20 hover:border-emerald-500 hover:bg-slate-50 dark:hover:bg-white/5')}`}>
                                         <input type="file" accept=".xlsx, .xls, .csv" className="hidden" ref={fileInputRef} onChange={handleFileSelection} disabled={isUploading || !targetTimetableId} />
                                         {isUploading ? (
                                             <>
-                                                <Loader2 className="w-10 h-10 animate-spin text-emerald-500 mb-4" />
-                                                <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400">Parsing Spreadsheet Data...</p>
+                                                <Loader2 className={`w-10 h-10 animate-spin mb-4 ${isGlobalImport ? 'text-purple-500' : 'text-emerald-500'}`} />
+                                                <p className={`text-sm font-medium ${isGlobalImport ? 'text-purple-700 dark:text-purple-400' : 'text-emerald-700 dark:text-emerald-400'}`}>Parsing Spreadsheet Data...</p>
                                             </>
                                         ) : (
                                             <>
@@ -827,7 +851,19 @@ export default function AdminTimetableViewer() {
                                 </div>
                             ) : (
                                 <div className="space-y-6">
-                                    {(previewData.overwrites?.total_allocations_deleted > 0 || previewData.overwrites?.total_entries_deleted > 0) && (
+                                    {isGlobalImport && (
+                                        <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800/50 rounded-xl p-4 flex items-start shadow-sm">
+                                            <Globe className="w-5 h-5 text-purple-600 dark:text-purple-400 mr-3 mt-0.5 flex-shrink-0" />
+                                            <div>
+                                                <h4 className="text-sm font-bold text-purple-900 dark:text-purple-200">Global Batch Import Active</h4>
+                                                <p className="text-sm text-purple-700 dark:text-purple-400 mt-1">
+                                                    Committing this will inject these courses and slots into <strong>EVERY class</strong> that matches the selected Batch Year and Semester. Existing overlapping slots in those classes may be overwritten.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {(!isGlobalImport && (previewData.overwrites?.total_allocations_deleted > 0 || previewData.overwrites?.total_entries_deleted > 0)) && (
                                         <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-xl p-4 flex items-start shadow-sm">
                                             <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 mr-3 mt-0.5 flex-shrink-0" />
                                             <div>
@@ -858,7 +894,7 @@ export default function AdminTimetableViewer() {
                                                                 <input className="text-xs p-1.5 border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-[#1a1a1a] dark:text-white w-full outline-none focus:ring-1 focus:ring-indigo-500" value={courseEditForm.course_title} onChange={e => setCourseEditForm({...courseEditForm, course_title: e.target.value})} placeholder="Course Title" />
                                                                 <div className="flex gap-2">
                                                                     <input className="text-xs p-1.5 border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-[#1a1a1a] dark:text-white w-1/2 outline-none focus:ring-1 focus:ring-indigo-500" value={courseEditForm.course_code} onChange={e => setCourseEditForm({...courseEditForm, course_code: e.target.value})} placeholder="Course Code" />
-                                                                    <input className="text-xs p-1.5 border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-[#1a1a1a] dark:text-white w-1/2 outline-none focus:ring-1 focus:ring-indigo-500" value={courseEditForm.abbreviation} onChange={e => setCourseEditForm({...courseEditForm, abbreviation: e.target.value})} placeholder="Abbreviation" />
+                                                                    <input className="text-xs p-1.5 border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-[#1a1a1a] dark:text-white w-1/2 outline-none focus:ring-1 focus:ring-indigo-500" value={courseEditForm.abbreviation || ''} onChange={e => setCourseEditForm({...courseEditForm, abbreviation: e.target.value})} placeholder="Abbreviation" />
                                                                 </div>
                                                                 <div className="flex justify-end gap-2 mt-1">
                                                                     <button onClick={() => setEditingCourseIdx(null)} className="p-1 text-slate-500 hover:text-slate-800 dark:hover:text-white"><X size={14}/></button>
@@ -963,8 +999,8 @@ export default function AdminTimetableViewer() {
                                                                     <button onClick={() => deleteEntry(i)} className="p-1 bg-white dark:bg-slate-800 rounded shadow-sm text-red-600 hover:text-red-800 dark:text-red-400"><Trash2 size={12}/></button>
                                                                 </div>
                                                                 <div className="pr-12">
-                                                                    <div className="font-bold text-slate-700 dark:text-slate-300 mb-0.5">{e.day_of_week} • {e.start_time.substring(0,5)}</div>
-                                                                    {e.raw_entry === 'LUNCH' || e.entry_type === 'LUNCH' ? (
+                                                                    <div className="font-bold text-slate-700 dark:text-slate-300 mb-0.5">{e.day_of_week} • {e.start_time?.substring(0,5)}</div>
+                                                                    {e.raw_entry === 'LUNCH' ? (
                                                                         <div className="text-amber-600 dark:text-amber-400 font-bold uppercase tracking-wider mt-1">LUNCH BREAK</div>
                                                                     ) : (
                                                                         <>
@@ -996,10 +1032,10 @@ export default function AdminTimetableViewer() {
                             <button 
                                 onClick={commitTimetableChanges} 
                                 disabled={!previewData || isCommiting}
-                                className={`px-5 py-2.5 rounded-xl font-medium flex items-center shadow-sm transition-all ${!previewData || isCommiting ? 'bg-slate-300 dark:bg-slate-700 text-slate-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}
+                                className={`px-5 py-2.5 rounded-xl font-medium flex items-center shadow-sm transition-all ${!previewData || isCommiting ? 'bg-slate-300 dark:bg-slate-700 text-slate-500 cursor-not-allowed' : (isGlobalImport ? 'bg-purple-600 hover:bg-purple-700 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white')}`}
                             >
                                 {isCommiting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-2" />}
-                                Commit Changes to Database
+                                {isGlobalImport ? 'Commit to All Batch Classes' : 'Commit Changes to Database'}
                             </button>
                         </div>
                     </div>

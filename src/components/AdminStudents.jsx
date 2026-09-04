@@ -417,6 +417,7 @@ export default function AdminStudents() {
                     className="w-full bg-slate-50 dark:bg-[#1a1a1a] border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500/50 text-slate-900 dark:text-white transition-all"
                     placeholder="e.g. CSE I, ME"
                   />
+                  <p className="text-[10px] text-slate-400 mt-1">Used to auto-link timetable</p>
                 </div>
                 <div className="col-span-2 sm:col-span-1">
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Email</label>
@@ -433,15 +434,13 @@ export default function AdminStudents() {
               <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
                   Password {editingId && <span className="text-slate-400 font-normal">(Leave blank to keep current)</span>}
-                  {!editingId && <span className="text-red-500"> *</span>}
                 </label>
                 <input 
                   type="password" 
-                  required={!editingId}
                   value={formData.password}
                   onChange={e => setFormData({...formData, password: e.target.value})}
                   className="w-full bg-slate-50 dark:bg-[#1a1a1a] border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500/50 text-slate-900 dark:text-white transition-all"
-                  placeholder={editingId ? "••••••••" : "Set initial password"}
+                  placeholder={editingId ? "••••••••" : "Defaults to 'password123' if blank"}
                 />
               </div>
 

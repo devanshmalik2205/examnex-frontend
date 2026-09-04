@@ -15,7 +15,7 @@ export default function AdminTeachers() {
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   
   // Forms state
-  const [currentTeacher, setCurrentTeacher] = useState({ full_name: '', email: '', teacher_type: 'Faculty' });
+  const [currentTeacher, setCurrentTeacher] = useState({ full_name: '', email: '', teacher_type: 'Assistant Prof.' });
   const [selectedTeacherId, setSelectedTeacherId] = useState(null);
   
   // Allocation state
@@ -83,7 +83,8 @@ export default function AdminTeachers() {
         fetchTeachers();
         setTeacherModalOpen(false);
       } else {
-        alert('Failed to save teacher');
+        const errorData = await res.json();
+        alert(errorData.error || 'Failed to save teacher');
       }
     } catch (error) {
       console.error("Error saving teacher", error);
@@ -203,7 +204,10 @@ export default function AdminTeachers() {
               body: JSON.stringify(previewData.preview)
           });
 
-          if (!res.ok) throw new Error('Failed to commit modifications.');
+          if (!res.ok) {
+              const errData = await res.json();
+              throw new Error(errData.error || 'Failed to commit modifications.');
+          }
           
           setIsUploadModalOpen(false);
           setPreviewData(null);
@@ -267,7 +271,7 @@ export default function AdminTeachers() {
             <FileSpreadsheet className="w-4 h-4 mr-2" /> Bulk Upload
           </button>
           <button 
-            onClick={() => { setCurrentTeacher({ full_name: '', email: '', teacher_type: 'Faculty' }); setTeacherModalOpen(true); }}
+            onClick={() => { setCurrentTeacher({ full_name: '', email: '', teacher_type: 'Assistant Prof.' }); setTeacherModalOpen(true); }}
             className="flex-1 sm:flex-none flex items-center justify-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold transition-colors shadow-sm"
           >
             <Plus className="w-4 h-4 mr-2" /> Add Teacher
@@ -295,7 +299,7 @@ export default function AdminTeachers() {
               <tr className="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-white/5 text-sm font-medium text-slate-500 dark:text-slate-400">
                 <th className="p-4">Name</th>
                 <th className="p-4">Email</th>
-                <th className="p-4">Type</th>
+                <th className="p-4">Role/Type</th>
                 <th className="p-4">Allocated Subjects & Classes</th>
                 <th className="p-4 text-right">Actions</th>
               </tr>
@@ -320,7 +324,7 @@ export default function AdminTeachers() {
                     </td>
                     <td className="p-4 text-slate-600 dark:text-slate-300">{teacher.email}</td>
                     <td className="p-4">
-                      <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                      <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 capitalize">
                         {teacher.teacher_type}
                       </span>
                     </td>
@@ -380,21 +384,26 @@ export default function AdminTeachers() {
               <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Email</label>
                 <input 
-                  required type="email" value={currentTeacher.email || ''} 
+                  type="email" value={currentTeacher.email || ''} 
                   onChange={e => setCurrentTeacher({...currentTeacher, email: e.target.value})}
+                  placeholder="Will be auto-generated if left blank"
                   className="w-full px-4 py-2.5 bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-white/10 rounded-lg focus:ring-2 focus:ring-blue-500 dark:text-white outline-none"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Type</label>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Role / Type</label>
                 <select 
-                  value={currentTeacher.teacher_type || 'Faculty'} 
+                  value={currentTeacher.teacher_type || 'Assistant Prof.'} 
                   onChange={e => setCurrentTeacher({...currentTeacher, teacher_type: e.target.value})}
                   className="w-full px-4 py-2.5 bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-white/10 rounded-lg focus:ring-2 focus:ring-blue-500 dark:text-white outline-none"
                 >
+                  <option value="Assistant Prof.">Assistant Prof.</option>
+                  <option value="Associate Prof.">Associate Prof.</option>
+                  <option value="Prof.">Prof.</option>
+                  <option value="Lab Prof.">Lab Prof.</option>
+                  <option value="Researchers">Researchers</option>
                   <option value="Faculty">Faculty</option>
-                  <option value="Guest Lecturer">Guest Lecturer</option>
-                  <option value="HOD">HOD</option>
+                  <option value="PhD Scholar">PhD Scholar</option>
                 </select>
               </div>
               <div className="pt-4 flex justify-end gap-3">
