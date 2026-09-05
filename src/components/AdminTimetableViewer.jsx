@@ -3,8 +3,9 @@ import {
     Calendar, Users, BookOpen, Clock, MapPin, Search, 
     ChevronDown, LayoutDashboard, Loader2, Info, User,
     Tag, Layers, Award, FileSpreadsheet, AlertTriangle, 
-    CheckCircle, X, UploadCloud, Plus, Trash2, Edit2, Check, Globe
+    CheckCircle, X, UploadCloud, Plus, Trash2, Edit2, Check, Globe, Download
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 // Time slots based on official format
 const TIME_SLOTS = [
@@ -117,6 +118,9 @@ export default function AdminTimetableViewer() {
     const [previewData, setPreviewData] = useState(null);
     const [isCommiting, setIsCommiting] = useState(false);
     const fileInputRef = useRef(null);
+    
+    // Download state
+    const [showDownload, setShowDownload] = useState(false);
 
     // Editing States for Preview
     const [editingCourseIdx, setEditingCourseIdx] = useState(null);
@@ -400,10 +404,49 @@ export default function AdminTimetableViewer() {
         );
     }
 
+    const handleDownload = (format) => {
+        if (!timetableData || !timetableData.entries || timetableData.entries.length === 0) {
+            alert("No timetable entries to download for this section.");
+            return;
+        }
+
+        const currentTT = timetables.find(t => t.id === selectedTimetable);
+        const sectionName = currentTT ? `Batch_${currentTT.batch_year}_${currentTT.stream}_Sem${currentTT.semester}` : 'Timetable';
+
+        const exportData = timetableData.entries.map(e => {
+            const teachers = e.teachers ? e.teachers.map(t => t.full_name).join(', ') : 'N/A';
+            return {
+                "Day": e.day_of_week,
+                "Start Time": formatTime(e.start_time),
+                "End Time": formatTime(e.end_time),
+                "Entry Type": e.entry_type,
+                "Course/Raw Entry": e.course_title || e.raw_entry,
+                "Course Code": e.course_code || 'N/A',
+                "Room": e.room || 'N/A',
+                "Teachers": teachers
+            };
+        });
+
+        const fileName = `${sectionName}_Export_${new Date().toISOString().split('T')[0]}`;
+
+        if (format === 'json') {
+            const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url; link.download = `${fileName}.json`; link.click();
+            URL.revokeObjectURL(url);
+        } else {
+            const worksheet = XLSX.utils.json_to_sheet(exportData);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Timetable");
+            XLSX.writeFile(workbook, `${fileName}.${format}`);
+        }
+    };
+
     return (
         <div className="flex flex-col h-full space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
             {/* Control Bar */}
-            <div className="bg-white dark:bg-[#111111] p-4 sm:p-6 rounded-2xl border border-slate-200 dark:border-white/5 shadow-sm flex flex-col sm:flex-row gap-4 justify-between items-center transition-colors">
+            <div className="bg-white dark:bg-[#111111] p-4 sm:p-6 rounded-2xl border border-slate-200 dark:border-white/5 shadow-sm flex flex-col xl:flex-row gap-4 justify-between items-start xl:items-center transition-colors">
                 <div>
                     <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
                         <LayoutDashboard className="w-5 h-5 text-blue-600 dark:text-blue-400"/>
@@ -412,8 +455,8 @@ export default function AdminTimetableViewer() {
                     <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Manage sections, view schedules, faculty allocations, and students.</p>
                 </div>
                 
-                <div className="flex flex-col sm:flex-row w-full sm:w-auto items-center gap-3">
-                    <div className="flex w-full sm:w-auto items-center gap-2 bg-slate-50 dark:bg-white/5 p-1.5 rounded-xl border border-slate-200 dark:border-white/10">
+                <div className="flex flex-col sm:flex-row w-full xl:w-auto items-center gap-3">
+                    <div className="flex w-full sm:w-auto items-center gap-2 bg-slate-50 dark:bg-white/5 p-1.5 rounded-xl border border-slate-200 dark:border-white/10 flex-shrink-0">
                         <div className="relative min-w-[250px] flex-1">
                             <select
                                 value={selectedTimetable || ''}
@@ -447,6 +490,33 @@ export default function AdminTimetableViewer() {
                                 <Trash2 className="w-4 h-4" />
                             </button>
                         </div>
+                    </div>
+
+                    {/* Collapsible Download Button */}
+                    <div 
+                        className="relative w-full sm:w-auto flex-shrink-0" 
+                        tabIndex={-1}
+                        onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setShowDownload(false); }}
+                    >
+                        <button 
+                            onClick={() => setShowDownload(!showDownload)}
+                            disabled={!selectedTimetable}
+                            className="w-full sm:w-auto flex items-center justify-center px-4 py-2.5 rounded-xl text-sm font-medium transition-all shadow-sm border bg-white dark:bg-[#1a1a1a] border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            <Download className="w-4 h-4 mr-2" />
+                            Export
+                            <ChevronDown className={`w-4 h-4 ml-2 transition-transform ${showDownload ? 'rotate-180' : ''}`} />
+                        </button>
+
+                        {showDownload && selectedTimetable && (
+                            <div className="absolute right-0 mt-2 w-full sm:w-40 bg-white dark:bg-[#1a1a1a] border border-slate-200 dark:border-white/10 rounded-xl shadow-xl z-[60] overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                                <button onClick={() => { handleDownload('csv'); setShowDownload(false); }} className="block w-full text-left px-4 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">Download CSV</button>
+                                <div className="h-px w-full bg-slate-100 dark:bg-white/5"></div>
+                                <button onClick={() => { handleDownload('json'); setShowDownload(false); }} className="block w-full text-left px-4 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">Download JSON</button>
+                                <div className="h-px w-full bg-slate-100 dark:bg-white/5"></div>
+                                <button onClick={() => { handleDownload('xlsx'); setShowDownload(false); }} className="block w-full text-left px-4 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">Download XLSX</button>
+                            </div>
+                        )}
                     </div>
                     
                     <button 

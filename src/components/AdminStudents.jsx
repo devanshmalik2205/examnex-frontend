@@ -8,8 +8,11 @@ import {
   Loader2, 
   AlertTriangle,
   GraduationCap,
-  Filter
+  Filter,
+  Download,
+  ChevronDown
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 export default function AdminStudents() {
   const [students, setStudents] = useState([]);
@@ -21,6 +24,9 @@ export default function AdminStudents() {
   const [selectedYears, setSelectedYears] = useState([]);
   const [showFilters, setShowFilters] = useState(false);
   const filterRef = React.useRef(null);
+  
+  // Download State
+  const [showDownload, setShowDownload] = useState(false);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -184,20 +190,78 @@ export default function AdminStudents() {
     return matchesSearch && matchesStream && matchesYear;
   });
 
+  const handleDownload = (format) => {
+    if (!filteredStudents || filteredStudents.length === 0) {
+      alert("No data to download");
+      return;
+    }
+
+    const exportData = filteredStudents.map(s => ({
+      "Registration No": s.registration_no,
+      "Full Name": s.username,
+      "Stream": s.stream || 'N/A',
+      "Email": s.email || 'N/A'
+    }));
+
+    const fileName = `Students_Export_${new Date().toISOString().split('T')[0]}`;
+
+    if (format === 'json') {
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url; link.download = `${fileName}.json`; link.click();
+      URL.revokeObjectURL(url);
+    } else {
+      const worksheet = XLSX.utils.json_to_sheet(exportData);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Students");
+      XLSX.writeFile(workbook, `${fileName}.${format}`);
+    }
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-[1600px] mx-auto">
-      <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+      <header className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
         <div>
           <h2 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white transition-colors">Student Management</h2>
           <p className="text-slate-500 dark:text-slate-400 text-sm mt-1 transition-colors">Manage student accounts, streams, and system access.</p>
         </div>
-        <button 
-          onClick={openAddModal}
-          className="flex items-center justify-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold transition-all shadow-sm w-full sm:w-auto hover:shadow-md"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Add Student</span>
-        </button>
+        
+        <div className="flex flex-col sm:flex-row w-full lg:w-auto items-center gap-3">
+          {/* Collapsible Download Button */}
+          <div 
+            className="relative w-full sm:w-auto" 
+            tabIndex={-1}
+            onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setShowDownload(false); }}
+          >
+            <button 
+              onClick={() => setShowDownload(!showDownload)}
+              className="w-full sm:w-auto flex items-center justify-center px-4 py-2.5 rounded-xl text-sm font-medium transition-all shadow-sm border bg-white dark:bg-[#1a1a1a] border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5"
+            >
+              <Download className="w-4 h-4 mr-2" />
+              Export
+              <ChevronDown className={`w-4 h-4 ml-2 transition-transform ${showDownload ? 'rotate-180' : ''}`} />
+            </button>
+
+            {showDownload && (
+              <div className="absolute right-0 mt-2 w-full sm:w-40 bg-white dark:bg-[#1a1a1a] border border-slate-200 dark:border-white/10 rounded-xl shadow-xl z-[60] overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                <button onClick={() => { handleDownload('csv'); setShowDownload(false); }} className="block w-full text-left px-4 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">Download CSV</button>
+                <div className="h-px w-full bg-slate-100 dark:bg-white/5"></div>
+                <button onClick={() => { handleDownload('json'); setShowDownload(false); }} className="block w-full text-left px-4 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">Download JSON</button>
+                <div className="h-px w-full bg-slate-100 dark:bg-white/5"></div>
+                <button onClick={() => { handleDownload('xlsx'); setShowDownload(false); }} className="block w-full text-left px-4 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">Download XLSX</button>
+              </div>
+            )}
+          </div>
+
+          <button 
+            onClick={openAddModal}
+            className="w-full sm:w-auto flex items-center justify-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold transition-all shadow-sm hover:shadow-md flex-shrink-0"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add Student</span>
+          </button>
+        </div>
       </header>
 
       {/* Main Content Area */}

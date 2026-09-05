@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
     Plus, Edit2, Trash2, BookOpen, X, Loader2, Search, 
-    FileSpreadsheet, UploadCloud, AlertTriangle, CheckCircle, Users
+    FileSpreadsheet, UploadCloud, AlertTriangle, CheckCircle, Users, Download, ChevronDown
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 export default function AdminTeachers() {
   const [teachers, setTeachers] = useState([]);
@@ -30,6 +31,9 @@ export default function AdminTeachers() {
   const [isCommiting, setIsCommiting] = useState(false);
   const fileInputRef = useRef(null);
   
+  // Download state
+  const [showDownload, setShowDownload] = useState(false);
+  
   const getApiBase = () => {
     const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
     return `${backendUrl}/api`;
@@ -40,7 +44,7 @@ export default function AdminTeachers() {
     fetchAllocationOptions();
   }, []);
 
-  const fetchTeachers = async () => {
+    const fetchTeachers = async () => {
     try {
       setLoading(true);
       const res = await fetch(`${getApiBase()}/admin/teachers`);
@@ -255,31 +259,89 @@ export default function AdminTeachers() {
     );
   };
 
+  const handleDownload = (format) => {
+    if (!filteredTeachers || filteredTeachers.length === 0) {
+      alert("No data to download");
+      return;
+    }
+
+    const exportData = filteredTeachers.map(t => {
+      const allocs = (t.allocations || []).map(a => `${a.course_code} (${a.stream} Sem ${a.semester})`).join(' | ');
+      return {
+        "Full Name": t.full_name,
+        "Email": t.email,
+        "Role/Type": t.teacher_type,
+        "Allocations": allocs || "None"
+      };
+    });
+
+    const fileName = `Teachers_Export_${new Date().toISOString().split('T')[0]}`;
+
+    if (format === 'json') {
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url; link.download = `${fileName}.json`; link.click();
+      URL.revokeObjectURL(url);
+    } else {
+      const worksheet = XLSX.utils.json_to_sheet(exportData);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Teachers");
+      XLSX.writeFile(workbook, `${fileName}.${format}`);
+    }
+  };
+
   return (
     <div className="p-4 sm:p-6 w-full max-w-7xl mx-auto space-y-6">
-      {}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Teachers Management</h1>
           <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">Manage faculty, update profiles, and view allocations.</p>
         </div>
-        <div className="flex w-full sm:w-auto items-center gap-3">
+        
+        <div className="flex flex-col sm:flex-row w-full lg:w-auto items-center gap-3">
+          
+          {/* Collapsible Download Button */}
+          <div 
+            className="relative w-full sm:w-auto" 
+            tabIndex={-1}
+            onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setShowDownload(false); }}
+          >
+            <button 
+              onClick={() => setShowDownload(!showDownload)}
+              className="w-full sm:w-auto flex items-center justify-center px-4 py-2.5 rounded-xl text-sm font-medium transition-all shadow-sm border bg-white dark:bg-[#1a1a1a] border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5"
+            >
+              <Download className="w-4 h-4 mr-2" />
+              Export
+              <ChevronDown className={`w-4 h-4 ml-2 transition-transform ${showDownload ? 'rotate-180' : ''}`} />
+            </button>
+
+            {showDownload && (
+              <div className="absolute right-0 mt-2 w-full sm:w-40 bg-white dark:bg-[#1a1a1a] border border-slate-200 dark:border-white/10 rounded-xl shadow-xl z-[60] overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                <button onClick={() => { handleDownload('csv'); setShowDownload(false); }} className="block w-full text-left px-4 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">Download CSV</button>
+                <div className="h-px w-full bg-slate-100 dark:bg-white/5"></div>
+                <button onClick={() => { handleDownload('json'); setShowDownload(false); }} className="block w-full text-left px-4 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">Download JSON</button>
+                <div className="h-px w-full bg-slate-100 dark:bg-white/5"></div>
+                <button onClick={() => { handleDownload('xlsx'); setShowDownload(false); }} className="block w-full text-left px-4 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">Download XLSX</button>
+              </div>
+            )}
+          </div>
+
           <button 
             onClick={() => setIsUploadModalOpen(true)}
-            className="flex-1 sm:flex-none bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors flex items-center justify-center shadow-sm"
+            className="w-full sm:w-auto flex-1 sm:flex-none bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors flex items-center justify-center shadow-sm"
           >
             <FileSpreadsheet className="w-4 h-4 mr-2" /> Bulk Upload
           </button>
           <button 
             onClick={() => { setCurrentTeacher({ full_name: '', email: '', teacher_type: 'Assistant Prof.' }); setTeacherModalOpen(true); }}
-            className="flex-1 sm:flex-none flex items-center justify-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold transition-colors shadow-sm"
+            className="w-full sm:w-auto flex-1 sm:flex-none flex items-center justify-center px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold transition-colors shadow-sm"
           >
             <Plus className="w-4 h-4 mr-2" /> Add Teacher
           </button>
         </div>
       </div>
 
-      {}
       <div className="flex items-center bg-white dark:bg-[#111111] p-2 rounded-xl border border-slate-200 dark:border-white/5 shadow-sm">
         <Search className="w-5 h-5 text-slate-400 ml-2" />
         <input 
@@ -291,7 +353,6 @@ export default function AdminTeachers() {
         />
       </div>
 
-      {}
       <div className="bg-white dark:bg-[#111111] rounded-xl border border-slate-200 dark:border-white/5 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
@@ -362,7 +423,6 @@ export default function AdminTeachers() {
         </div>
       </div>
 
-      {}
       {isTeacherModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
           <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl w-full max-w-md shadow-2xl overflow-hidden border border-slate-200 dark:border-white/10">
@@ -415,7 +475,6 @@ export default function AdminTeachers() {
         </div>
       )}
 
-      {}
       {isAllocationModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
           <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden border border-slate-200 dark:border-white/10 flex flex-col max-h-[90vh]">
@@ -492,7 +551,6 @@ export default function AdminTeachers() {
         </div>
       )}
 
-      {}
       {isUploadModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm transition-opacity animate-in fade-in">
           <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden border border-slate-200 dark:border-white/10 shadow-2xl flex flex-col">
@@ -525,7 +583,7 @@ export default function AdminTeachers() {
                                   <>
                                       <UploadCloud className="w-12 h-12 text-slate-400 dark:text-slate-500 mb-4" />
                                       <p className="text-base font-semibold text-slate-700 dark:text-slate-300">Click or drag Excel file to upload</p>
-                                      <p className="text-xs text-slate-500 mt-2 text-center px-4">Required format: FacultyName, FacultyEmail, Type</p>
+                                      <p className="text-xs text-slate-500 mt-2 text-center px-4">Standard Columns expected: Name/FacultyName, Email, Role/Type</p>
                                   </>
                               )}
                           </label>
@@ -538,7 +596,12 @@ export default function AdminTeachers() {
                                   <div>
                                       <h4 className="text-sm font-bold text-amber-900 dark:text-amber-200">Existing Records Found</h4>
                                       <p className="text-sm text-amber-700 dark:text-amber-400 mt-1">
-                                        Found <strong>{previewData.overwrites.total_updates} existing teachers</strong> based on email address. Their names and types will be updated, preserving existing subject allocations.
+                                        Found <strong>{previewData.overwrites.total_updates} existing teachers</strong> based on name or email. Their profiles will be updated seamlessly without losing existing class allocations.
+                                        {previewData.overwrites.email_updates > 0 && (
+                                            <span className="block mt-1.5 text-amber-800 dark:text-amber-300">
+                                                Includes <strong>{previewData.overwrites.email_updates} email address updates</strong>.
+                                            </span>
+                                        )}
                                       </p>
                                   </div>
                               </div>
@@ -548,16 +611,31 @@ export default function AdminTeachers() {
                               <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center mb-3">
                                   <Users className="w-4 h-4 mr-2 text-indigo-500" /> Parsed Faculty ({previewData.preview.teachers?.length || 0})
                               </h4>
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-64 overflow-y-auto custom-scrollbar pr-2">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-72 overflow-y-auto custom-scrollbar pr-2">
                                   {(previewData.preview.teachers || []).map((t, i) => (
-                                      <div key={i} className={`text-sm p-3 rounded-lg border flex justify-between items-center ${t.is_update ? 'bg-amber-50/50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800/50' : 'bg-slate-50 dark:bg-white/5 border-slate-100 dark:border-white/5'}`}>
+                                      <div key={i} className={`text-sm p-3 rounded-lg border flex justify-between items-start ${t.is_update ? 'bg-amber-50/50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800/50' : 'bg-slate-50 dark:bg-white/5 border-slate-100 dark:border-white/5'}`}>
                                           <div className="overflow-hidden mr-2">
                                               <p className="font-semibold text-slate-800 dark:text-slate-200 truncate">{t.full_name}</p>
                                               <p className="text-xs text-slate-500 truncate">{t.email}</p>
+                                              <p className="text-[10px] font-bold uppercase text-slate-400 mt-1.5">{t.teacher_type}</p>
                                           </div>
-                                          <div className="flex flex-col items-end gap-1 shrink-0">
-                                            <span className="text-[10px] font-bold uppercase text-slate-400">{t.teacher_type}</span>
-                                            {t.is_update && <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/30 px-1.5 rounded">UPDATE</span>}
+                                          <div className="flex flex-col items-end gap-1 shrink-0 ml-4 text-right">
+                                            {t.is_update ? (
+                                                <>
+                                                    <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/30 px-1.5 rounded uppercase tracking-wider">Update</span>
+                                                    {t.update_details && t.update_details.length > 0 && (
+                                                        <div className="flex flex-col items-end mt-1">
+                                                            {t.update_details.map((detail, dIdx) => (
+                                                                <span key={dIdx} className="text-[9.5px] font-medium text-amber-700 dark:text-amber-500 bg-amber-50 dark:bg-amber-900/10 px-1.5 py-0.5 rounded-sm mt-0.5 whitespace-nowrap border border-amber-100 dark:border-amber-800/30">
+                                                                    {detail}
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </>
+                                            ) : (
+                                                <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/30 px-1.5 rounded uppercase tracking-wider">New</span>
+                                            )}
                                           </div>
                                       </div>
                                   ))}
