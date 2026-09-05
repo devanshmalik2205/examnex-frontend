@@ -365,7 +365,7 @@ export default function AdminTimetableViewer() {
     const safeTimetables = Array.isArray(timetables) ? timetables : [];
     const safeEntries = Array.isArray(timetableData?.entries) ? timetableData.entries : [];
     
-    const ROW_DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+    const ROW_DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI'];
     const groupedEntries = {};
     
     // Improved Grouping: Merge entries that share the EXACT same time slot, even if they are different minor subjects
