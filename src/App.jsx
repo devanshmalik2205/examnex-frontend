@@ -23,7 +23,60 @@ import PlasmaRing from "./components/originkit/ui/plasma-ring";
 import AdminTimetableViewer from './components/AdminTimetableViewer';
 import AdminTeachers from './components/AdminTeachers';
 import AdminStudents from './components/AdminStudents';
-import AdminCourses from './components/AdminCourses'; // <-- Added Import
+import AdminCourses from './components/AdminCourses';
+
+function SidebarImages({ role }) {
+  const [imgIndex, setImgIndex] = useState(0);
+
+  const studentImgs = [
+    '/src/assets/student_1.png',
+    '/src/assets/student_2.png',
+    '/src/assets/student_3.png',
+    '/src/assets/student_4.png',
+    '/src/assets/student_5.png',
+  ];
+
+  const teacherImgs = [
+    '/src/assets/teacher_1.png',
+    '/src/assets/teacher_2.png',
+    '/src/assets/teacher_3.png',
+    '/src/assets/teacher_4.png',
+  ];
+
+  const activeImgs = role === 'student' ? studentImgs : (role === 'faculty' || role === 'admin' ? teacherImgs : []);
+
+  useEffect(() => {
+    if (!activeImgs.length) return;
+    
+    // Cycle through images every 1 hour (3600000 ms)
+    const interval = setInterval(() => {
+      setImgIndex((prev) => (prev + 1) % activeImgs.length);
+    }, 3600000); 
+
+    return () => clearInterval(interval);
+  }, [activeImgs.length]);
+
+  if (!activeImgs.length) return null;
+
+  return (
+    <div className="hidden md:flex w-full h-[140px] relative pointer-events-none overflow-hidden shrink-0">
+      {activeImgs.map((img, idx) => (
+        <img
+          key={idx}
+          src={img}
+          alt="sidebar graphic"
+          className={`absolute inset-0 w-full h-full object-contain object-bottom scale-90 transition-opacity duration-1000 ease-in-out ${
+            idx === imgIndex ? 'opacity-90 dark:opacity-75' : 'opacity-0'
+          }`}
+          style={{
+            WebkitMaskImage: 'linear-gradient(to bottom, black 50%, transparent 100%)',
+            maskImage: 'linear-gradient(to bottom, black 50%, transparent 100%)'
+          }}
+        />
+      ))}
+    </div>
+  );
+}
 
 const getInitialAuth = () => {
   try {
@@ -207,7 +260,7 @@ export default function App() {
     }
   };
 
-const getNavItems = () => {
+  const getNavItems = () => {
     switch(userRole) {
       case 'admin':
         return [
@@ -215,7 +268,7 @@ const getNavItems = () => {
           { id: 'timetables', label: 'Timetables', icon: CalendarDays },
           { id: 'teachers', label: 'Teachers', icon: Briefcase },
           { id: 'students', label: 'Students', icon: Users },
-          { id: 'courses', label: 'Courses', icon: BookOpen }, // Verified Courses is here
+          { id: 'courses', label: 'Courses', icon: BookOpen },
         ];
       case 'faculty':
         return [
@@ -233,11 +286,11 @@ const getNavItems = () => {
     }
   };
 
-const renderActiveTabContent = () => {
+  const renderActiveTabContent = () => {
     if (userRole === 'admin' && activeTab === 'students') return <AdminStudents />;
     if (userRole === 'admin' && activeTab === 'teachers') return <AdminTeachers />;
     if (userRole === 'admin' && activeTab === 'timetables') return <AdminTimetableViewer />;
-    if (userRole === 'admin' && activeTab === 'courses') return <AdminCourses />; // <-- Render AdminCourses
+    if (userRole === 'admin' && activeTab === 'courses') return <AdminCourses />;
     
     if (activeTab === 'dashboard') {
       if (userRole === 'admin') return <AdminDashboard />;
@@ -372,7 +425,7 @@ const renderActiveTabContent = () => {
                       <button 
                         type="submit"
                         disabled={isLoading}
-                        className="w-full flex items-center justify-center space-x-2 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-gray-200 text-white dark:text-black p-3.5 sm:p-4 rounded-2xl transition-all duration-200 font-bold mt-2 shadow-lg"
+                        className="w-full flex items-center justify-center space-x-2 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-gray-200 text-white dark:text-black p-3.5 sm:p-4 rounded-2xl transition-all duration-200 font-bold mt-2 shadow-lg h-[52px]"
                       >
                         {isLoading ? (
                           <Loader2 className="w-5 h-5 animate-spin" />
@@ -386,16 +439,16 @@ const renderActiveTabContent = () => {
               </div>
             </div>
         ) : (
-          <div className="w-full flex h-screen bg-[#1a1c23] dark:bg-black overflow-hidden transition-colors duration-300">
-            <aside className="w-16 sm:w-20 md:w-64 flex flex-col items-center md:items-start py-4 sm:py-6 px-2 md:px-4 bg-[#1a1c23] dark:bg-[#111111] text-slate-400 transition-all z-20 shrink-0 border-r border-slate-200 dark:border-white/5 shadow-2xl">
-                <div className="flex items-center w-full justify-center md:justify-start mb-8 sm:mb-10 md:px-2">
+          <div className="w-full flex h-screen bg-slate-50 dark:bg-[#0a0a0a] overflow-hidden transition-colors duration-300">
+            <aside className="w-16 sm:w-20 md:w-64 flex flex-col items-center md:items-start py-4 sm:py-6 px-2 md:px-4 bg-[#1a1c23] dark:bg-[#111111] text-slate-400 transition-all z-20 shrink-0 m-4 sm:m-5 rounded-[2rem] border border-slate-700/50 dark:border-white/10 shadow-2xl relative h-[calc(100vh-2rem)] sm:h-[calc(100vh-2.5rem)] overflow-hidden">
+                <div className="flex items-center w-full justify-center md:justify-start mb-8 sm:mb-10 md:px-2 z-20 shrink-0">
                     <div className="w-9 h-9 sm:w-10 sm:h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shrink-0 shadow-sm">
                         <ShieldCheck className="w-5 h-5 sm:w-6 sm:h-6" />
                     </div>
                     <span className="ml-3 hidden md:block text-xl font-bold text-white tracking-tight">ExamNex</span>
                 </div>
                 
-                <nav className="flex-1 flex flex-col space-y-2 sm:space-y-4 w-full">
+                <nav className="flex flex-col space-y-2 sm:space-y-4 w-full z-20 shrink-0">
                     {getNavItems().map(item => {
                         const Icon = item.icon;
                         const isActive = activeTab === item.id;
@@ -415,7 +468,12 @@ const renderActiveTabContent = () => {
                     })}
                 </nav>
 
-                <div className="w-full pt-4 border-t border-white/10">
+                {/* Intelligent spacer to ensure image and logout stick precisely to the bottom */}
+                <div className="flex-1 min-h-[1rem]"></div>
+
+                <SidebarImages role={userRole} />
+
+                <div className="w-full pt-4 mt-2 border-t border-white/10 z-20 shrink-0 bg-[#1a1c23] dark:bg-[#111111]">
                     <button 
                         onClick={handleLogout}
                         className="flex items-center w-full p-2.5 sm:p-3 rounded-xl transition-all text-slate-400 hover:bg-white/5 hover:text-red-400 group"
@@ -427,15 +485,15 @@ const renderActiveTabContent = () => {
                 </div>
             </aside>
 
-            <main className="flex-1 flex flex-col relative overflow-hidden bg-slate-50 dark:bg-[#0a0a0a]">
+            <main className="flex-1 flex flex-col relative overflow-hidden bg-transparent">
                 <header className="h-16 sm:h-20 flex items-center justify-end px-6 sm:px-10 sticky top-0 z-10 bg-transparent">
-                  <div className="flex items-center space-x-3 sm:space-x-4">
-                    <button className="p-2.5 rounded-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-sm relative">
+                  <div className="flex items-center space-x-3 sm:space-x-4 bg-white/50 dark:bg-black/20 backdrop-blur-md p-1.5 rounded-full border border-slate-200/50 dark:border-white/5 shadow-sm">
+                    <button className="p-2.5 rounded-full bg-transparent text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/10 transition-colors relative">
                         <Bell className="w-4 h-4 sm:w-5 sm:h-5" />
                         <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border border-white dark:border-[#111111]"></span>
                     </button>
                     
-                    <button onClick={toggleTheme} className="p-2.5 rounded-full bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-sm">
+                    <button onClick={toggleTheme} className="p-2.5 rounded-full bg-transparent text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/10 transition-colors">
                         {isDarkMode ? <Sun className="w-4 h-4 sm:w-5 sm:h-5" /> : <Moon className="w-4 h-4 sm:w-5 sm:h-5" />}
                     </button>
                   </div>
@@ -506,7 +564,7 @@ function AdminOverview() {
         <p className="text-slate-500 dark:text-slate-400 text-sm mt-1 transition-colors">Manage schedules, rooms, and allocations globally.</p>
       </header>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 relative">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 relative min-h-[100px]">
         {loading && (
             <div className="absolute inset-0 bg-white/50 dark:bg-[#111]/50 backdrop-blur-sm z-10 flex items-center justify-center rounded-xl">
                 <Loader2 className="w-6 h-6 animate-spin text-blue-600 dark:text-blue-400" />
