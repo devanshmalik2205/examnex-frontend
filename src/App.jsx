@@ -29,18 +29,18 @@ function SidebarImages({ role }) {
   const [imgIndex, setImgIndex] = useState(0);
 
   const studentImgs = [
-    '/src/assets/student_1.png',
-    '/src/assets/student_2.png',
-    '/src/assets/student_3.png',
-    '/src/assets/student_4.png',
-    '/src/assets/student_5.png',
+    '/assets/student_1.png',
+    '/assets/student_2.png',
+    '/assets/student_3.png',
+    '/assets/student_4.png',
+    '/assets/student_5.png',
   ];
 
   const teacherImgs = [
-    '/src/assets/teacher_1.png',
-    '/src/assets/teacher_2.png',
-    '/src/assets/teacher_3.png',
-    '/src/assets/teacher_4.png',
+    '/assets/teacher_1.png',
+    '/assets/teacher_2.png',
+    '/assets/teacher_3.png',
+    '/assets/teacher_4.png',
   ];
 
   const activeImgs = role === 'student' ? studentImgs : (role === 'faculty' || role === 'admin' ? teacherImgs : []);
