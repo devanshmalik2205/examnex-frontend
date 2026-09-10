@@ -53,7 +53,8 @@ export default function AdminCourses() {
     category: '',
     credits: '',
     ldp: '',
-    course_type: 'regular'
+    course_type: 'regular',
+    exam_type: 'standard'
   });
 
   const backendUrl = import.meta.env?.VITE_BACKEND_URL || 'http://localhost:5000';
@@ -163,7 +164,7 @@ export default function AdminCourses() {
   const openAddModal = () => {
     setEditingId(null);
     setFormData({ 
-      course_code: '', course_title: '', abbreviation: '', category: '', credits: '', ldp: '', course_type: 'regular' 
+      course_code: '', course_title: '', abbreviation: '', category: '', credits: '', ldp: '', course_type: 'regular', exam_type: 'standard' 
     });
     setError('');
     setIsModalOpen(true);
@@ -178,7 +179,8 @@ export default function AdminCourses() {
       category: course.category || '', 
       credits: course.credits || '', 
       ldp: course.ldp || '', 
-      course_type: course.course_type || 'regular' 
+      course_type: course.course_type || 'regular',
+      exam_type: course.exam_type || 'standard'
     });
     setError('');
     setIsModalOpen(true);
@@ -231,6 +233,7 @@ export default function AdminCourses() {
         "Course Title": c.course_title,
         "Category": c.category,
         "Type": c.course_type,
+        "Exam Structure": c.exam_type,
         "Credits": c.credits ? parseFloat(c.credits) : '',
         "LDP": c.ldp,
         "Semesters Taught": semesters || "Unassigned"
@@ -485,10 +488,14 @@ export default function AdminCourses() {
                         <span className={`text-[10px] px-2 py-0.5 rounded capitalize font-medium ${course.course_type === 'elective' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' : 'bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-slate-300'}`}>
                           {course.course_type || 'Regular'}
                         </span>
+                        
+                        <span className={`text-[10px] px-2 py-0.5 rounded capitalize font-medium border ${course.exam_type === 'project' ? 'border-amber-200 bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-800' : course.exam_type === 'enrichment' ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800' : 'border-blue-200 bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-800'}`}>
+                          {course.exam_type === 'project' ? 'Project (No Slot)' : course.exam_type === 'enrichment' ? 'Enrichment (No Exam)' : 'Standard Exam'}
+                        </span>
 
                         {uniqueSemesters.length > 0 ? (
                            uniqueSemesters.slice(0, 3).map((sem, idx) => (
-                             <span key={idx} className="text-[10px] px-1.5 py-0.5 rounded border border-slate-200 dark:border-white/10 text-slate-500 dark:text-slate-400">
+                             <span key={idx} className="text-[10px] px-1.5 py-0.5 rounded border border-slate-200 dark:border-white/10 text-slate-500 dark:text-slate-400 mt-1">
                                Sem {sem}
                              </span>
                            ))
@@ -561,6 +568,12 @@ export default function AdminCourses() {
                     <div>
                       <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Type</p>
                       <p className="text-sm text-slate-900 dark:text-white font-medium capitalize">{courseDetails.course.course_type || 'Regular'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Exam Structure</p>
+                      <p className="text-sm text-slate-900 dark:text-white font-medium capitalize">
+                          {courseDetails.course.exam_type === 'project' ? 'Project-Based (Evaluated Before Exams)' : courseDetails.course.exam_type === 'enrichment' ? 'Enrichment (No Exams)' : 'Standard Exam Schedule'}
+                      </p>
                     </div>
                     {courseDetails.course.ldp && (
                       <div className="col-span-2 border-t border-slate-200 dark:border-white/10 pt-3 mt-1">
@@ -702,6 +715,20 @@ export default function AdminCourses() {
                     <option value="minor">Minor</option>
                   </select>
                 </div>
+              </div>
+              
+              <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Exam Structure (Scheduler Rule)</label>
+                  <select 
+                    value={formData.exam_type}
+                    onChange={e => setFormData({...formData, exam_type: e.target.value})}
+                    className="w-full bg-slate-50 dark:bg-[#1a1a1a] border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500/50 text-slate-900 dark:text-white transition-all text-sm"
+                  >
+                    <option value="standard">Standard Written Exam (Requires Slot)</option>
+                    <option value="project">Project / Portfolio (Evaluated Before Exam Weeks)</option>
+                    <option value="enrichment">Enrichment / Club (No Formal Evaluation)</option>
+                  </select>
+                  <p className="text-[10px] text-slate-500 mt-1">This tells the AI Scheduler whether to allocate an exam slot for this subject.</p>
               </div>
 
               <div className="grid grid-cols-2 gap-4">

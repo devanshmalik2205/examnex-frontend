@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Users, 
-  BookOpen, 
-  CalendarDays, 
-  MapPin, 
-  LogOut, 
-  ShieldCheck, 
-  GraduationCap, 
+import {
+  Users,
+  BookOpen,
+  CalendarDays,
+  MapPin,
+  LogOut,
+  ShieldCheck,
+  GraduationCap,
   Briefcase,
   AlertTriangle,
   CheckCircle,
@@ -17,13 +17,16 @@ import {
   Layout,
   TableProperties,
   Search,
-  Bell
+  Bell,
+  Wand2
 } from 'lucide-react';
+
 import PlasmaRing from "./components/originkit/ui/plasma-ring";
 import AdminTimetableViewer from './components/AdminTimetableViewer';
 import AdminTeachers from './components/AdminTeachers';
 import AdminStudents from './components/AdminStudents';
 import AdminCourses from './components/AdminCourses';
+import AdminScheduleGenerator from './components/AdminScheduleGenerator';
 
 function SidebarImages({ role }) {
   const [imgIndex, setImgIndex] = useState(0);
@@ -47,7 +50,7 @@ function SidebarImages({ role }) {
 
   useEffect(() => {
     if (!activeImgs.length) return;
-    
+
     // Cycle through images every 1 hour (3600000 ms)
     const interval = setInterval(() => {
       setImgIndex((prev) => (prev + 1) % activeImgs.length);
@@ -65,9 +68,7 @@ function SidebarImages({ role }) {
           key={idx}
           src={img}
           alt="sidebar graphic"
-          className={`absolute inset-0 w-full h-full object-contain object-bottom scale-90 transition-opacity duration-1000 ease-in-out ${
-            idx === imgIndex ? 'opacity-90 dark:opacity-75' : 'opacity-0'
-          }`}
+          className={`absolute inset-0 w-full h-full object-contain object-bottom scale-90 transition-opacity duration-1000 ease-in-out ${ idx === imgIndex ? 'opacity-90 dark:opacity-75' : 'opacity-0' }`}
           style={{
             WebkitMaskImage: 'linear-gradient(to bottom, black 50%, transparent 100%)',
             maskImage: 'linear-gradient(to bottom, black 50%, transparent 100%)'
@@ -81,17 +82,17 @@ function SidebarImages({ role }) {
 const getInitialAuth = () => {
   try {
     const checkExpiryAndReturn = (storageString, storageType) => {
-        if (!storageString) return null;
-        const parsed = JSON.parse(storageString);
-        // Verify 24-hour expiration
-        if (parsed.expiry && parsed.expiry > Date.now()) {
-            return parsed;
-        } else {
-            // Expired - clean up immediately
-            if (storageType === 'session') sessionStorage.removeItem('examnex_auth');
-            if (storageType === 'local') localStorage.removeItem('examnex_auth');
-            return null;
-        }
+      if (!storageString) return null;
+      const parsed = JSON.parse(storageString);
+      // Verify 24-hour expiration
+      if (parsed.expiry && parsed.expiry > Date.now()) {
+        return parsed;
+      } else {
+        // Expired - clean up immediately
+        if (storageType === 'session') sessionStorage.removeItem('examnex_auth');
+        if (storageType === 'local') localStorage.removeItem('examnex_auth');
+        return null;
+      }
     };
 
     const sessionAuth = checkExpiryAndReturn(sessionStorage.getItem('examnex_auth'), 'session');
@@ -108,15 +109,15 @@ const getInitialAuth = () => {
 
 const getInitialTheme = () => {
   try {
-      const saved = localStorage.getItem('examnex_theme');
-      if (saved !== null) return JSON.parse(saved);
-      if (typeof window !== 'undefined') {
-          return window.matchMedia('(prefers-color-scheme: dark)').matches;
-      }
+    const saved = localStorage.getItem('examnex_theme');
+    if (saved !== null) return JSON.parse(saved);
+    if (typeof window !== 'undefined') {
+      return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    }
   } catch (e) {
-      console.warn("Theme retrieval failed", e);
+    console.warn("Theme retrieval failed", e);
   }
-  return false; 
+  return false;
 };
 
 export default function App() {
@@ -158,11 +159,11 @@ export default function App() {
 
   const toggleTheme = () => {
     setIsDarkMode(prev => {
-        const newTheme = !prev;
-        try {
-            localStorage.setItem('examnex_theme', JSON.stringify(newTheme));
-        } catch (e) {}
-        return newTheme;
+      const newTheme = !prev;
+      try {
+        localStorage.setItem('examnex_theme', JSON.stringify(newTheme));
+      } catch (e) {}
+      return newTheme;
     });
   };
 
@@ -183,7 +184,7 @@ export default function App() {
       try {
         const localAuth = localStorage.getItem('examnex_auth');
         const sessionAuth = sessionStorage.getItem('examnex_auth');
-        
+
         if (localAuth) {
           const parsed = JSON.parse(localAuth);
           if (parsed.expiry && Date.now() > parsed.expiry) handleLogout();
@@ -194,7 +195,7 @@ export default function App() {
         }
       } catch (e) {}
     };
-    
+
     checkExpiry();
     const interval = setInterval(checkExpiry, 60000);
     return () => clearInterval(interval);
@@ -265,6 +266,7 @@ export default function App() {
       case 'admin':
         return [
           { id: 'dashboard', label: 'Dashboard', icon: Layout },
+          { id: 'generator', label: 'Exam Engine', icon: Wand2 },
           { id: 'timetables', label: 'Timetables', icon: CalendarDays },
           { id: 'teachers', label: 'Teachers', icon: Briefcase },
           { id: 'students', label: 'Students', icon: Users },
@@ -291,9 +293,10 @@ export default function App() {
     if (userRole === 'admin' && activeTab === 'teachers') return <AdminTeachers />;
     if (userRole === 'admin' && activeTab === 'timetables') return <AdminTimetableViewer />;
     if (userRole === 'admin' && activeTab === 'courses') return <AdminCourses />;
-    
+    if (userRole === 'admin' && activeTab === 'generator') return <AdminScheduleGenerator />;
+
     if (activeTab === 'dashboard') {
-      if (userRole === 'admin') return <AdminDashboard />;
+      if (userRole === 'admin') return <AdminDashboard onNavigate={setActiveTab} />;
       if (userRole === 'faculty') return <FacultyDashboard user={userData} />;
       if (userRole === 'student') return <StudentDashboard user={userData} />;
     }
@@ -309,199 +312,198 @@ export default function App() {
   return (
     <div className={`${isDarkMode ? 'dark' : ''} w-full min-h-screen flex flex-col`}>
       <div className="w-full min-h-screen text-slate-900 dark:text-gray-100 flex flex-col bg-slate-50 dark:bg-[#0a0a0a] transition-colors duration-300">
-          {!userRole ? (
-            <div className="flex-1 flex items-center justify-center p-4 sm:p-6 lg:p-8">
-              <div className="w-full max-w-[1200px] min-h-[600px] lg:min-h-[700px] bg-white dark:bg-[#111111] rounded-[2rem] lg:rounded-[2.5rem] shadow-2xl flex flex-col lg:flex-row p-3 relative transition-colors duration-300 border border-slate-200 dark:border-white/5">
-                
-                <div className="hidden lg:flex flex-col relative w-1/2 rounded-[1.8rem] lg:rounded-[2.2rem] overflow-hidden bg-black p-10 lg:p-14">
-                  <div className="flex-1 w-full relative flex items-center justify-center z-10">
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <PlasmaRing 
-                        background="#000000" 
-                        colors={['#FF3300', '#0055FF', '#E200FF']} 
-                        scale={45} 
-                      />
-                    </div>
-                  </div>
-                  <div className="relative z-20 mt-6 pt-6 border-t border-white/10 shrink-0">
-                    <h1 className="text-6xl font-serif text-white leading-tight tracking-tight">
-                      ExamNex
-                    </h1>
+        {!userRole ? (
+          <div className="flex-1 flex items-center justify-center p-4 sm:p-6 lg:p-8">
+            <div className="w-full max-w-[1200px] min-h-[600px] lg:min-h-[700px] bg-white dark:bg-[#111111] rounded-[2rem] lg:rounded-[2.5rem] shadow-2xl flex flex-col lg:flex-row p-3 relative transition-colors duration-300 border border-slate-200 dark:border-white/5">
+              
+              <div className="hidden lg:flex flex-col relative w-1/2 rounded-[1.8rem] lg:rounded-[2.2rem] overflow-hidden bg-black p-10 lg:p-14">
+                <div className="flex-1 w-full relative flex items-center justify-center z-10">
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <PlasmaRing 
+                      background="#000000" 
+                      colors={['#FF3300', '#0055FF', '#E200FF']} 
+                      scale={45} 
+                    />
                   </div>
                 </div>
+                <div className="relative z-20 mt-6 pt-6 border-t border-white/10 shrink-0">
+                  <h1 className="text-6xl font-serif text-white leading-tight tracking-tight">
+                    ExamNex
+                  </h1>
+                </div>
+              </div>
 
-                <div className="w-full lg:w-1/2 flex flex-col items-center justify-center px-6 py-12 sm:px-12 lg:px-20 relative">
-                  
-                  <button 
-                    onClick={toggleTheme}
-                    className="absolute top-6 right-6 lg:top-8 lg:right-8 z-[100] p-3 rounded-full bg-slate-100 dark:bg-white/5 text-gray-600 dark:text-gray-400 hover:bg-slate-200 dark:hover:bg-white/10 transition-all border border-slate-200 dark:border-white/5 shadow-sm cursor-pointer"
-                    aria-label="Toggle Theme"
-                  >
-                    {isDarkMode ? <Sun className="w-5 h-5 pointer-events-none" /> : <Moon className="w-5 h-5 pointer-events-none" />}
-                  </button>
+              <div className="w-full lg:w-1/2 flex flex-col items-center justify-center px-6 py-12 sm:px-12 lg:px-20 relative">
+                
+                <button 
+                  onClick={toggleTheme}
+                  className="absolute top-6 right-6 lg:top-8 lg:right-8 z-[100] p-3 rounded-full bg-slate-100 dark:bg-white/5 text-gray-600 dark:text-gray-400 hover:bg-slate-200 dark:hover:bg-white/10 transition-all border border-slate-200 dark:border-white/5 shadow-sm cursor-pointer"
+                  aria-label="Toggle Theme"
+                >
+                  {isDarkMode ? <Sun className="w-5 h-5 pointer-events-none" /> : <Moon className="w-5 h-5 pointer-events-none" />}
+                </button>
 
-                  <div className="w-full max-w-sm space-y-8 mt-8 lg:mt-0">
-                    <div className="text-center lg:text-left">
-                      <h1 className="text-3xl sm:text-4xl font-serif font-medium text-gray-900 dark:text-white tracking-tight mb-2 sm:mb-3 transition-colors">Welcome Back</h1>
-                      <p className="text-sm text-slate-500 dark:text-gray-400">Enter your credentials to access your account</p>
-                    </div>
-                    
-                    {error && (
-                      <div className="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 p-4 rounded-2xl text-sm flex items-center animate-in fade-in duration-300 border border-red-100 dark:border-red-900/30">
-                        <AlertTriangle className="w-5 h-5 mr-3 flex-shrink-0" />
-                        {error}
-                      </div>
-                    )}
-
-                    <form onSubmit={handleLogin} className="space-y-6">
-                      <div className="bg-slate-100 dark:bg-white/5 p-1.5 rounded-2xl flex items-center justify-between border border-slate-200 dark:border-white/5 transition-colors">
-                        <button
-                          type="button"
-                          onClick={() => { setLoginRole('student'); setError(''); setUsername(''); }}
-                          className={`flex-1 py-2 text-xs sm:text-sm font-medium rounded-xl transition-all ${loginRole === 'student' ? 'bg-white dark:bg-[#222] shadow-sm text-gray-900 dark:text-white' : 'text-slate-500 dark:text-gray-400 hover:text-slate-700 dark:hover:text-gray-200'}`}
-                        >
-                          Student
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => { setLoginRole('faculty'); setError(''); setUsername(''); }}
-                          className={`flex-1 py-2 text-xs sm:text-sm font-medium rounded-xl transition-all ${loginRole === 'faculty' ? 'bg-white dark:bg-[#222] shadow-sm text-gray-900 dark:text-white' : 'text-slate-500 dark:text-gray-400 hover:text-slate-700 dark:hover:text-gray-200'}`}
-                        >
-                          Faculty
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => { setLoginRole('admin'); setError(''); setUsername(''); }}
-                          className={`flex-1 py-2 text-xs sm:text-sm font-medium rounded-xl transition-all ${loginRole === 'admin' ? 'bg-white dark:bg-[#222] shadow-sm text-gray-900 dark:text-white' : 'text-slate-500 dark:text-gray-400 hover:text-slate-700 dark:hover:text-gray-200'}`}
-                        >
-                          Admin
-                        </button>
-                      </div>
-
-                      <div className="space-y-5">
-                        <div>
-                          <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-2 transition-colors">
-                            {loginRole === 'student' ? 'Registration No.' : 'Username'}
-                          </label>
-                          <input 
-                            type="text" 
-                            required
-                            value={username}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setUsername(loginRole === 'student' ? val.toUpperCase() : val);
-                            }}
-                            className={`w-full bg-slate-100 dark:bg-white/5 border border-transparent rounded-2xl px-4 sm:px-5 py-3 sm:py-3.5 outline-none focus:ring-2 focus:ring-blue-600 dark:focus:ring-white transition-all text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 ${loginRole === 'student' ? 'uppercase' : ''}`}
-                            placeholder={loginRole === 'admin' ? "E.G., BMU_EDU_IN" : (loginRole === 'student' ? "E.G., 240C2070001" : "Enter your username")}
-                          />
-                        </div>
-                        
-                        <div>
-                          <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-2 transition-colors">Password</label>
-                          <input 
-                            type="password" 
-                            required
-                            value={password}
-                            onChange={(e) => setPassword(e.target.value)}
-                            className="w-full bg-slate-100 dark:bg-white/5 border border-transparent rounded-2xl px-4 sm:px-5 py-3 sm:py-3.5 outline-none focus:ring-2 focus:ring-blue-600 dark:focus:ring-white transition-all text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-gray-500"
-                            placeholder="••••••••"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between mt-4">
-                        <label className="flex items-center space-x-2 cursor-pointer">
-                          <input 
-                            type="checkbox" 
-                            checked={rememberMe}
-                            onChange={(e) => setRememberMe(e.target.checked)}
-                            className="w-4 h-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900 dark:border-gray-600 dark:bg-white/10 dark:focus:ring-white transition-colors" 
-                          />
-                          <span className="text-xs font-medium text-slate-600 dark:text-gray-400 transition-colors">Remember me</span>
-                        </label>
-                        <a href="#" className="text-xs font-medium text-blue-600 dark:text-white hover:underline transition-colors">Forgot Password?</a>
-                      </div>
-
-                      <button 
-                        type="submit"
-                        disabled={isLoading}
-                        className="w-full flex items-center justify-center space-x-2 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-gray-200 text-white dark:text-black p-3.5 sm:p-4 rounded-2xl transition-all duration-200 font-bold mt-2 shadow-lg h-[52px]"
-                      >
-                        {isLoading ? (
-                          <Loader2 className="w-5 h-5 animate-spin" />
-                        ) : (
-                          <span>Sign In</span>
-                        )}
-                      </button>
-                    </form>
+                <div className="w-full max-w-sm space-y-8 mt-8 lg:mt-0">
+                  <div className="text-center lg:text-left">
+                    <h1 className="text-3xl sm:text-4xl font-serif font-medium text-gray-900 dark:text-white tracking-tight mb-2 sm:mb-3 transition-colors">Welcome Back</h1>
+                    <p className="text-sm text-slate-500 dark:text-gray-400">Enter your credentials to access your account</p>
                   </div>
+                  
+                  {error && (
+                    <div className="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 p-4 rounded-2xl text-sm flex items-center animate-in fade-in duration-300 border border-red-100 dark:border-red-900/30">
+                      <AlertTriangle className="w-5 h-5 mr-3 flex-shrink-0" />
+                      {error}
+                    </div>
+                  )}
+
+                  <form onSubmit={handleLogin} className="space-y-6">
+                    <div className="bg-slate-100 dark:bg-white/5 p-1.5 rounded-2xl flex items-center justify-between border border-slate-200 dark:border-white/5 transition-colors">
+                      <button
+                        type="button"
+                        onClick={() => { setLoginRole('student'); setError(''); setUsername(''); }}
+                        className={`flex-1 py-2 text-xs sm:text-sm font-medium rounded-xl transition-all ${loginRole === 'student' ? 'bg-white dark:bg-[#222] shadow-sm text-gray-900 dark:text-white' : 'text-slate-500 dark:text-gray-400 hover:text-slate-700 dark:hover:text-gray-200'}`}
+                      >
+                        Student
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setLoginRole('faculty'); setError(''); setUsername(''); }}
+                        className={`flex-1 py-2 text-xs sm:text-sm font-medium rounded-xl transition-all ${loginRole === 'faculty' ? 'bg-white dark:bg-[#222] shadow-sm text-gray-900 dark:text-white' : 'text-slate-500 dark:text-gray-400 hover:text-slate-700 dark:hover:text-gray-200'}`}
+                      >
+                        Faculty
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setLoginRole('admin'); setError(''); setUsername(''); }}
+                        className={`flex-1 py-2 text-xs sm:text-sm font-medium rounded-xl transition-all ${loginRole === 'admin' ? 'bg-white dark:bg-[#222] shadow-sm text-gray-900 dark:text-white' : 'text-slate-500 dark:text-gray-400 hover:text-slate-700 dark:hover:text-gray-200'}`}
+                      >
+                        Admin
+                      </button>
+                    </div>
+
+                    <div className="space-y-5">
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-2 transition-colors">
+                          {loginRole === 'student' ? 'Registration No.' : 'Username'}
+                        </label>
+                        <input 
+                          type="text" 
+                          required
+                          value={username}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setUsername(loginRole === 'student' ? val.toUpperCase() : val);
+                          }}
+                          className={`w-full bg-slate-100 dark:bg-white/5 border border-transparent rounded-2xl px-4 sm:px-5 py-3 sm:py-3.5 outline-none focus:ring-2 focus:ring-blue-600 dark:focus:ring-white transition-all text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 ${loginRole === 'student' ? 'uppercase' : ''}`}
+                          placeholder={loginRole === 'admin' ? "E.G., BMU_EDU_IN" : (loginRole === 'student' ? "E.G., 240C2070001" : "Enter your username")}
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 dark:text-gray-300 mb-2 transition-colors">Password</label>
+                        <input 
+                          type="password" 
+                          required
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          className="w-full bg-slate-100 dark:bg-white/5 border border-transparent rounded-2xl px-4 sm:px-5 py-3 sm:py-3.5 outline-none focus:ring-2 focus:ring-blue-600 dark:focus:ring-white transition-all text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-gray-500"
+                          placeholder="••••••••"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between mt-4">
+                      <label className="flex items-center space-x-2 cursor-pointer">
+                        <input 
+                          type="checkbox" 
+                          checked={rememberMe}
+                          onChange={(e) => setRememberMe(e.target.checked)}
+                          className="w-4 h-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900 dark:border-gray-600 dark:bg-white/10 dark:focus:ring-white transition-colors" 
+                        />
+                        <span className="text-xs font-medium text-slate-600 dark:text-gray-400 transition-colors">Remember me</span>
+                      </label>
+                      <a href="#" className="text-xs font-medium text-blue-600 dark:text-white hover:underline transition-colors">Forgot Password?</a>
+                    </div>
+
+                    <button 
+                      type="submit"
+                      disabled={isLoading}
+                      className="w-full flex items-center justify-center space-x-2 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-gray-200 text-white dark:text-black p-3.5 sm:p-4 rounded-2xl transition-all duration-200 font-bold mt-2 shadow-lg h-[52px]"
+                    >
+                      {isLoading ? (
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                      ) : (
+                        <span>Sign In</span>
+                      )}
+                    </button>
+                  </form>
                 </div>
               </div>
             </div>
+          </div>
         ) : (
           <div className="w-full flex h-screen bg-slate-50 dark:bg-[#0a0a0a] overflow-hidden transition-colors duration-300">
             <aside className="w-16 sm:w-20 md:w-64 flex flex-col items-center md:items-start py-4 sm:py-6 px-2 md:px-4 bg-[#1a1c23] dark:bg-[#111111] text-slate-400 transition-all z-20 shrink-0 m-4 sm:m-5 rounded-[2rem] border border-slate-700/50 dark:border-white/10 shadow-2xl relative h-[calc(100vh-2rem)] sm:h-[calc(100vh-2.5rem)] overflow-hidden">
-                <div className="flex items-center w-full justify-center md:justify-start mb-8 sm:mb-10 md:px-2 z-20 shrink-0">
-                    <div className="w-9 h-9 sm:w-10 sm:h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shrink-0 shadow-sm">
-                        <ShieldCheck className="w-5 h-5 sm:w-6 sm:h-6" />
-                    </div>
-                    <span className="ml-3 hidden md:block text-xl font-bold text-white tracking-tight">ExamNex</span>
+              <div className="flex items-center w-full justify-center md:justify-start mb-8 sm:mb-10 md:px-2 z-20 shrink-0">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shrink-0 shadow-sm">
+                  <ShieldCheck className="w-5 h-5 sm:w-6 sm:h-6" />
                 </div>
-                
-                <nav className="flex flex-col space-y-2 sm:space-y-4 w-full z-20 shrink-0">
-                    {getNavItems().map(item => {
-                        const Icon = item.icon;
-                        const isActive = activeTab === item.id;
-                        return (
-                            <button
-                                key={item.id}
-                                onClick={() => setActiveTab(item.id)}
-                                className={`flex items-center w-full p-2.5 sm:p-3 rounded-xl transition-all group ${
-                                    isActive ? 'bg-white/10 text-white' : 'text-slate-400 hover:bg-white/5 hover:text-white'
-                                }`}
-                                title={item.label}
-                            >
-                                <Icon className={`w-5 h-5 shrink-0 md:mr-3 ${isActive ? 'text-blue-400' : 'group-hover:text-blue-400'}`} />
-                                <span className="hidden md:block text-sm font-medium">{item.label}</span>
-                            </button>
-                        );
-                    })}
-                </nav>
-
-                {/* Intelligent spacer to ensure image and logout stick precisely to the bottom */}
-                <div className="flex-1 min-h-[1rem]"></div>
-
-                <SidebarImages role={userRole} />
-
-                <div className="w-full pt-4 mt-2 border-t border-white/10 z-20 shrink-0 bg-[#1a1c23] dark:bg-[#111111]">
-                    <button 
-                        onClick={handleLogout}
-                        className="flex items-center w-full p-2.5 sm:p-3 rounded-xl transition-all text-slate-400 hover:bg-white/5 hover:text-red-400 group"
-                        title="Logout"
+                <span className="ml-3 hidden md:block text-xl font-bold text-white tracking-tight">ExamNex</span>
+              </div>
+              
+              <nav className="flex flex-col space-y-2 sm:space-y-4 w-full z-20 shrink-0">
+                {getNavItems().map(item => {
+                  const Icon = item.icon;
+                  const isActive = activeTab === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => setActiveTab(item.id)}
+                      className={`flex items-center w-full p-2.5 sm:p-3 rounded-xl transition-all group ${
+                        isActive ? 'bg-white/10 text-white' : 'text-slate-400 hover:bg-white/5 hover:text-white'
+                      }`}
+                      title={item.label}
                     >
-                        <LogOut className="w-5 h-5 shrink-0 md:mr-3" />
-                        <span className="hidden md:block text-sm font-medium">Logout</span>
+                      <Icon className={`w-5 h-5 shrink-0 md:mr-3 ${isActive ? 'text-blue-400' : 'group-hover:text-blue-400'}`} />
+                      <span className="hidden md:block text-sm font-medium">{item.label}</span>
                     </button>
-                </div>
+                  );
+                })}
+              </nav>
+
+              <div className="flex-1 min-h-[1rem]"></div>
+
+              <SidebarImages role={userRole} />
+
+              <div className="w-full pt-4 mt-2 border-t border-white/10 z-20 shrink-0 bg-[#1a1c23] dark:bg-[#111111]">
+                <button 
+                  onClick={handleLogout}
+                  className="flex items-center w-full p-2.5 sm:p-3 rounded-xl transition-all text-slate-400 hover:bg-white/5 hover:text-red-400 group"
+                  title="Logout"
+                >
+                  <LogOut className="w-5 h-5 shrink-0 md:mr-3" />
+                  <span className="hidden md:block text-sm font-medium">Logout</span>
+                </button>
+              </div>
             </aside>
 
             <main className="flex-1 flex flex-col relative overflow-hidden bg-transparent">
-                <header className="h-16 sm:h-20 flex items-center justify-end px-6 sm:px-10 sticky top-0 z-10 bg-transparent">
-                  <div className="flex items-center space-x-3 sm:space-x-4 bg-white/50 dark:bg-black/20 backdrop-blur-md p-1.5 rounded-full border border-slate-200/50 dark:border-white/5 shadow-sm">
-                    <button className="p-2.5 rounded-full bg-transparent text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/10 transition-colors relative">
-                        <Bell className="w-4 h-4 sm:w-5 sm:h-5" />
-                        <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border border-white dark:border-[#111111]"></span>
-                    </button>
-                    
-                    <button onClick={toggleTheme} className="p-2.5 rounded-full bg-transparent text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/10 transition-colors">
-                        {isDarkMode ? <Sun className="w-4 h-4 sm:w-5 sm:h-5" /> : <Moon className="w-4 h-4 sm:w-5 sm:h-5" />}
-                    </button>
-                  </div>
-                </header>
-
-                <div className="flex-1 overflow-auto p-4 sm:p-8 pt-0">
-                    {renderActiveTabContent()}
+              <header className="h-16 sm:h-20 flex items-center justify-end px-6 sm:px-10 sticky top-0 z-10 bg-transparent">
+                <div className="flex items-center space-x-3 sm:space-x-4 bg-white/50 dark:bg-black/20 backdrop-blur-md p-1.5 rounded-full border border-slate-200/50 dark:border-white/5 shadow-sm">
+                  <button className="p-2.5 rounded-full bg-transparent text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/10 transition-colors relative">
+                    <Bell className="w-4 h-4 sm:w-5 sm:h-5" />
+                    <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border border-white dark:border-[#111111]"></span>
+                  </button>
+                  
+                  <button onClick={toggleTheme} className="p-2.5 rounded-full bg-transparent text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/10 transition-colors">
+                    {isDarkMode ? <Sun className="w-4 h-4 sm:w-5 sm:h-5" /> : <Moon className="w-4 h-4 sm:w-5 sm:h-5" />}
+                  </button>
                 </div>
+              </header>
+
+              <div className="flex-1 overflow-auto p-4 sm:p-8 pt-0">
+                {renderActiveTabContent()}
+              </div>
             </main>
           </div>
         )}
@@ -510,7 +512,7 @@ export default function App() {
   );
 }
 
-function AdminDashboard() {
+function AdminDashboard({ onNavigate }) {
   const [activeTab, setActiveTab] = useState('overview'); 
 
   return (
@@ -530,12 +532,12 @@ function AdminDashboard() {
         </button>
       </div>
 
-      {activeTab === 'overview' ? <AdminOverview /> : <AdminTimetableViewer />}
+      {activeTab === 'overview' ? <AdminOverview onNavigate={onNavigate} /> : <AdminTimetableViewer />}
     </div>
   );
 }
 
-function AdminOverview() {
+function AdminOverview({ onNavigate }) {
   const [stats, setStats] = useState({ total_exams: 0, total_students: 0, total_rooms: 0, conflicts: 0 });
   const [loading, setLoading] = useState(true);
 
@@ -580,8 +582,8 @@ function AdminOverview() {
         <div className="lg:col-span-2 bg-white dark:bg-[#111111] rounded-xl shadow-sm border border-slate-200 dark:border-white/5 p-4 sm:p-6 transition-colors">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
             <h3 className="text-lg font-semibold text-slate-900 dark:text-white transition-colors">Automated Scheduling Engine</h3>
-            <button className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm">
-              Generate Draft Schedule
+            <button onClick={() => onNavigate('generator')} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm flex items-center justify-center gap-2">
+              <Wand2 className="w-4 h-4"/> Generate Draft Schedule
             </button>
           </div>
           <div className="space-y-4">
