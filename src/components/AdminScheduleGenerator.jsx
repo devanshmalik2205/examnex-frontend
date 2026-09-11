@@ -25,6 +25,7 @@ import * as XLSX from 'xlsx';
 export default function AdminScheduleGenerator() {
     const [step, setStep] = useState(1);
     const [isLoading, setIsLoading] = useState(false);
+    const [isExporting, setIsExporting] = useState(false);
     const [error, setError] = useState(null);
     const [successMsg, setSuccessMsg] = useState(null);
 
@@ -148,28 +149,28 @@ export default function AdminScheduleGenerator() {
         return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
     };
 
-    const handleDownload = (format) => {
+    const handleDownload = async (format) => {
         if (!generatedSchedule || generatedSchedule.length === 0) {
             alert("No schedule generated to download.");
             return;
         }
 
-        const exportData = generatedSchedule.map(item => {
-            const batchesMapped = item.batches.map(b => b.name).join(', ');
-            return {
-                "Date": item.date,
-                "Slot Name": item.slotName,
-                "Start Time": item.startTime,
-                "End Time": item.endTime,
-                "Course Code": item.course_code,
-                "Course Title": item.title,
-                "Batches Scheduled": batchesMapped
-            };
-        });
-
         const fileName = `Exam_Schedule_${startDate}_to_${endDate}`;
 
         if (format === 'csv') {
+            // Keep CSV Simple for quick view
+            const exportData = generatedSchedule.map(item => {
+                const batchesMapped = item.batches.map(b => b.name).join(', ');
+                return {
+                    "Date": item.date,
+                    "Slot Name": item.slotName,
+                    "Start Time": item.startTime,
+                    "End Time": item.endTime,
+                    "Course Code": item.course_code,
+                    "Course Title": item.title,
+                    "Batches Scheduled": batchesMapped
+                };
+            });
             const worksheet = XLSX.utils.json_to_sheet(exportData);
             const csvOutput = XLSX.utils.sheet_to_csv(worksheet);
             const blob = new Blob([csvOutput], { type: 'text/csv;charset=utf-8;' });
@@ -177,11 +178,102 @@ export default function AdminScheduleGenerator() {
             const link = document.createElement('a');
             link.href = url; link.download = `${fileName}.csv`; link.click();
             URL.revokeObjectURL(url);
-        } else {
-            const worksheet = XLSX.utils.json_to_sheet(exportData);
-            const workbook = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(workbook, worksheet, "Schedule");
-            XLSX.writeFile(workbook, `${fileName}.${format}`);
+        } else if (format === 'xlsx') {
+            // Complex Seating Plan Format
+            setIsExporting(true);
+            try {
+                const backendUrl = import.meta.env?.VITE_BACKEND_URL || 'http://localhost:5000';
+                
+                const [studentsRes, timetablesRes] = await Promise.all([
+                    fetch(`${backendUrl}/api/admin/students`),
+                    fetch(`${backendUrl}/api/admin/timetables`)
+                ]);
+
+                if (!studentsRes.ok || !timetablesRes.ok) throw new Error("Data fetch failed");
+
+                const allStudents = await studentsRes.json();
+                const allTimetables = await timetablesRes.json();
+
+                let rows = [];
+                let srNo = 1;
+
+                // Build detailed student-by-student mapping based on the scheduled course batches
+                generatedSchedule.forEach(exam => {
+                    exam.batches.forEach(batch => {
+                        const ttInfo = allTimetables.find(t => t.id === batch.timetable_id);
+                        if (!ttInfo) return;
+
+                        const yearPrefix = ttInfo.batch_year.toString().substring(2, 4);
+                        
+                        const batchStudents = allStudents.filter(s =>
+                            s.registration_no.startsWith(yearPrefix) &&
+                            (s.stream || '').toUpperCase() === (ttInfo.stream || '').toUpperCase()
+                        );
+
+                        batchStudents.forEach(student => {
+                            rows.push({
+                                'Sr. No.': srNo++,
+                                'Programme': ttInfo.stream,
+                                'Sem': ttInfo.semester,
+                                'Group': '', 
+                                'Course Code': exam.course_code,
+                                'Course Name': exam.title,
+                                'Total Students': batchStudents.length,
+                                'Reg No': student.registration_no,
+                                'Name of Student': student.username,
+                                'Has Room': 'False' // Specific UI request handling (True/False based on Room mapping)
+                            });
+                        });
+                    });
+                });
+
+                if (rows.length === 0) {
+                    alert("No students found registered for the scheduled batches. Generating basic schedule instead.");
+                    const exportData = generatedSchedule.map(item => {
+                        const batchesMapped = item.batches.map(b => b.name).join(', ');
+                        return {
+                            "Date": item.date,
+                            "Slot Name": item.slotName,
+                            "Start Time": item.startTime,
+                            "End Time": item.endTime,
+                            "Course Code": item.course_code,
+                            "Course Title": item.title,
+                            "Batches Scheduled": batchesMapped
+                        };
+                    });
+                    const worksheet = XLSX.utils.json_to_sheet(exportData);
+                    worksheet['!cols'] = [ {wch: 15}, {wch: 15}, {wch: 15}, {wch: 15}, {wch: 15}, {wch: 35}, {wch: 40} ];
+                    const workbook = XLSX.utils.book_new();
+                    XLSX.utils.book_append_sheet(workbook, worksheet, "Schedule");
+                    XLSX.writeFile(workbook, `Exam_Schedule_${startDate}_to_${endDate}.xlsx`);
+                    return;
+                }
+
+                // Format the Excel sheet perfectly
+                const worksheet = XLSX.utils.json_to_sheet(rows);
+                worksheet['!cols'] = [
+                    { wch: 8 },  // Sr. No.
+                    { wch: 20 }, // Programme
+                    { wch: 8 },  // Sem
+                    { wch: 10 }, // Group
+                    { wch: 15 }, // Course Code
+                    { wch: 40 }, // Course Name
+                    { wch: 15 }, // Total Students
+                    { wch: 20 }, // Reg No
+                    { wch: 30 }, // Name of Student
+                    { wch: 12 }, // Has Room
+                ];
+
+                const workbook = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(workbook, worksheet, "Seating Plan");
+                XLSX.writeFile(workbook, `Seating_Plan_${startDate}_to_${endDate}.xlsx`);
+                
+            } catch (error) {
+                console.error("Export Error:", error);
+                alert("Failed to export seating plan.");
+            } finally {
+                setIsExporting(false);
+            }
         }
     };
 
@@ -190,7 +282,6 @@ export default function AdminScheduleGenerator() {
 
     return (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 w-full mx-auto max-w-[1600px]">
-            {}
             <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
                     <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white flex items-center transition-colors">
@@ -218,7 +309,6 @@ export default function AdminScheduleGenerator() {
                 </div>
             )}
 
-            {}
             {step === 1 && (
                 <div className="bg-white dark:bg-[#111111] p-6 sm:p-8 rounded-2xl border border-slate-200 dark:border-white/10 shadow-sm transition-colors max-w-[1200px]">
                     <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-200 mb-6 flex items-center transition-colors">
@@ -318,7 +408,6 @@ export default function AdminScheduleGenerator() {
                 </div>
             )}
 
-            {}
             {step === 2 && (
                 <div className="space-y-6 animate-in fade-in">
                     {clashes.length > 0 && (
@@ -359,17 +448,18 @@ export default function AdminScheduleGenerator() {
                                 <div className="relative" onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setShowDownload(false); }}>
                                     <button 
                                         onClick={() => setShowDownload(!showDownload)}
-                                        className="flex items-center px-3 py-1.5 bg-white dark:bg-[#1a1a1a] border border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-300 rounded-lg text-sm font-medium hover:bg-slate-50 dark:hover:bg-white/5 transition-colors shadow-sm"
+                                        disabled={isExporting}
+                                        className="flex items-center px-3 py-1.5 bg-white dark:bg-[#1a1a1a] border border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-300 rounded-lg text-sm font-medium hover:bg-slate-50 dark:hover:bg-white/5 transition-colors shadow-sm disabled:opacity-50"
                                     >
-                                        <Download className="w-4 h-4 mr-1.5" />
+                                        {isExporting ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <Download className="w-4 h-4 mr-1.5" />}
                                         Export
                                         <ChevronDown className={`w-4 h-4 ml-1.5 transition-transform ${showDownload ? 'rotate-180' : ''}`} />
                                     </button>
-                                    {showDownload && (
-                                        <div className="absolute right-0 mt-2 w-40 bg-white dark:bg-[#1a1a1a] border border-slate-200 dark:border-white/10 rounded-xl shadow-xl z-[60] overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
-                                            <button onClick={() => { handleDownload('csv'); setShowDownload(false); }} className="block w-full text-left px-4 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">Download CSV</button>
+                                    {showDownload && !isExporting && (
+                                        <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-[#1a1a1a] border border-slate-200 dark:border-white/10 rounded-xl shadow-xl z-[60] overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                                            <button onClick={() => { handleDownload('csv'); setShowDownload(false); }} className="block w-full text-left px-4 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">Download Summary CSV</button>
                                             <div className="h-px w-full bg-slate-100 dark:bg-white/5"></div>
-                                            <button onClick={() => { handleDownload('xlsx'); setShowDownload(false); }} className="block w-full text-left px-4 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">Download XLSX</button>
+                                            <button onClick={() => { handleDownload('xlsx'); setShowDownload(false); }} className="block w-full text-left px-4 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">Download Seating Plan (XLSX)</button>
                                         </div>
                                     )}
                                 </div>
@@ -475,7 +565,6 @@ export default function AdminScheduleGenerator() {
                 </div>
             )}
 
-            {}
             {step === 3 && (
                 <div className="bg-white dark:bg-[#111111] p-8 md:p-12 rounded-2xl border border-slate-200 dark:border-white/10 shadow-sm text-center animate-in zoom-in-95 duration-500 transition-colors max-w-[800px] mx-auto mt-10">
                     <div className="w-20 h-20 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner transition-colors">
@@ -495,11 +584,12 @@ export default function AdminScheduleGenerator() {
                     </button>
 
                     <div className="mt-6 flex justify-center gap-6">
-                        <button onClick={() => handleDownload('csv')} className="inline-flex items-center text-sm font-medium text-blue-600 dark:text-blue-400 hover:underline">
-                            <Download className="w-4 h-4 mr-1.5" /> Download CSV
+                        <button onClick={() => handleDownload('csv')} disabled={isExporting} className="inline-flex items-center text-sm font-medium text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-50">
+                            <Download className="w-4 h-4 mr-1.5" /> Download Summary CSV
                         </button>
-                        <button onClick={() => handleDownload('xlsx')} className="inline-flex items-center text-sm font-medium text-emerald-600 dark:text-emerald-400 hover:underline">
-                            <Download className="w-4 h-4 mr-1.5" /> Download Excel
+                        <button onClick={() => handleDownload('xlsx')} disabled={isExporting} className="inline-flex items-center text-sm font-medium text-emerald-600 dark:text-emerald-400 hover:underline disabled:opacity-50">
+                            {isExporting ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <Download className="w-4 h-4 mr-1.5" />}
+                            Download Seating Plan (Excel)
                         </button>
                     </div>
                 </div>

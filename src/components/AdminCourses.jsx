@@ -250,6 +250,20 @@ export default function AdminCourses() {
       URL.revokeObjectURL(url);
     } else {
       const worksheet = XLSX.utils.json_to_sheet(exportData);
+      
+      // Formatting the width for Excel columns cleanly
+      worksheet['!cols'] = [
+          { wch: 15 }, // Course Code
+          { wch: 15 }, // Abbreviation
+          { wch: 45 }, // Course Title
+          { wch: 20 }, // Category
+          { wch: 15 }, // Type
+          { wch: 25 }, // Exam Structure
+          { wch: 10 }, // Credits
+          { wch: 12 }, // LDP
+          { wch: 30 }, // Semesters Taught
+      ];
+      
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, "Courses");
       XLSX.writeFile(workbook, `${fileName}.${format}`);

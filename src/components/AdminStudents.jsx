@@ -213,6 +213,15 @@ export default function AdminStudents() {
       URL.revokeObjectURL(url);
     } else {
       const worksheet = XLSX.utils.json_to_sheet(exportData);
+      
+      // Formatting the width for Excel columns cleanly
+      worksheet['!cols'] = [
+          { wch: 20 }, // Registration No
+          { wch: 30 }, // Full Name
+          { wch: 20 }, // Stream
+          { wch: 35 }, // Email
+      ];
+      
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, "Students");
       XLSX.writeFile(workbook, `${fileName}.${format}`);
