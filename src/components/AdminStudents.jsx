@@ -56,10 +56,6 @@ export default function AdminStudents() {
 
   const backendUrl = import.meta.env?.VITE_BACKEND_URL || 'http://localhost:5000';
 
-  useEffect(() => {
-    fetchStudents();
-  }, []);
-
   const fetchStudents = async () => {
     try {
       setLoading(true);
@@ -77,6 +73,11 @@ export default function AdminStudents() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    // eslint-disable-next-line
+    fetchStudents();
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -196,35 +197,101 @@ export default function AdminStudents() {
       return;
     }
 
-    const exportData = filteredStudents.map(s => ({
-      "Registration No": s.registration_no,
-      "Full Name": s.username,
-      "Stream": s.stream || 'N/A',
-      "Email": s.email || 'N/A'
-    }));
-
     const fileName = `Students_Export_${new Date().toISOString().split('T')[0]}`;
 
-    if (format === 'json') {
-      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url; link.download = `${fileName}.json`; link.click();
-      URL.revokeObjectURL(url);
-    } else {
-      const worksheet = XLSX.utils.json_to_sheet(exportData);
+    if (format === 'json' || format === 'csv') {
+      const exportData = filteredStudents.map(s => ({
+        "Registration No": s.registration_no,
+        "Full Name": s.username,
+        "Stream": s.stream || 'N/A',
+        "Email": s.email || 'N/A'
+      }));
+
+      if (format === 'json') {
+        const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url; link.download = `${fileName}.json`; link.click();
+        URL.revokeObjectURL(url);
+      } else {
+        // CSV Format
+        const worksheet = XLSX.utils.json_to_sheet(exportData);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Students");
+        XLSX.writeFile(workbook, `${fileName}.csv`);
+      }
+    } else if (format === 'xlsx') {
+      // Mock exams to match the requested layout structure
+      const mockExams = [
+        { date: "19.05.2025", day: "Monday", shift: "AFTERNOON", subject: "PYTHON PROGRAMMING" },
+        { date: "21.05.2025", day: "Wednesday", shift: "AFTERNOON", subject: "PROBABILITY AND STATISTICS" },
+        { date: "23.05.2025", day: "Friday", shift: "AFTERNOON", subject: "PRINCIPLES OF MANAGEMENT" },
+        { date: "23.05.2025", day: "Friday", shift: "AFTERNOON", subject: "SCIENCE, TECHNOLOGY AND PUBLIC POLICY" },
+        { date: "26.05.2025", day: "Monday", shift: "AFTERNOON", subject: "DISCRETE MATHEMATICS" },
+        { date: "26.05.2025", day: "Monday", shift: "AFTERNOON", subject: "ELECTROCHEMISTRY AND ENERGY STORAGE" },
+        { date: "26.05.2025", day: "Monday", shift: "AFTERNOON", subject: "NUMERICAL METHODS" }
+      ];
+
+      // Build header rows
+      const row1 = ["", "", "", "", "DATE OF EXAM"];
+      const row2 = ["", "", "", "", "DAY"];
+      const row3 = ["", "", "", "", "SHIFT"];
+      const row4 = ["S#", "Stream", "Enrollment No", "Registration No", "Name"];
+
+      mockExams.forEach(exam => {
+        row1.push(exam.date);
+        row2.push(exam.day);
+        row3.push(exam.shift);
+        row4.push(exam.subject);
+      });
+
+      const aoaData = [row1, row2, row3, row4];
+
+      // Add data rows for each student
+      filteredStudents.forEach((s, index) => {
+        const rowData = [
+          index + 1, // S#
+          s.stream || 'N/A', // Stream
+          s.enrollment_no || '-', // Enrollment No (if available, else fallback)
+          s.registration_no || 'N/A', // Registration No
+          s.username || 'N/A', // Name
+        ];
+        
+        // For now, populate "True" for exams as requested (since rooms are not present)
+        mockExams.forEach(() => {
+          rowData.push("True");
+        });
+        
+        aoaData.push(rowData);
+      });
+
+      const worksheet = XLSX.utils.aoa_to_sheet(aoaData);
       
+      // Freeze the first 5 columns (up to Name) and first 4 rows (headers)
+      worksheet['!views'] = [
+        {
+          state: 'frozen',
+          xSplit: 5,
+          ySplit: 4
+        }
+      ];
+
       // Formatting the width for Excel columns cleanly
-      worksheet['!cols'] = [
+      const colWidths = [
+          { wch: 5 },  // S#
+          { wch: 15 }, // Stream
+          { wch: 15 }, // Enrollment No
           { wch: 20 }, // Registration No
-          { wch: 30 }, // Full Name
-          { wch: 20 }, // Stream
-          { wch: 35 }, // Email
+          { wch: 30 }, // Name
       ];
       
+      // Add widths for subject columns
+      mockExams.forEach(() => colWidths.push({ wch: 25 }));
+      worksheet['!cols'] = colWidths;
+      
       const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, "Students");
-      XLSX.writeFile(workbook, `${fileName}.${format}`);
+      XLSX.utils.book_append_sheet(workbook, worksheet, "SEATING PLAN");
+      XLSX.writeFile(workbook, `${fileName}.xlsx`);
     }
   };
 

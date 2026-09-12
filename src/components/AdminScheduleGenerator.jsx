@@ -20,7 +20,7 @@ import {
     Download,
     ChevronDown
 } from 'lucide-react';
-import * as XLSX from 'xlsx';
+import XLSX from 'xlsx-js-style';
 
 export default function AdminScheduleGenerator() {
     const [step, setStep] = useState(1);
@@ -179,7 +179,7 @@ export default function AdminScheduleGenerator() {
             link.href = url; link.download = `${fileName}.csv`; link.click();
             URL.revokeObjectURL(url);
         } else if (format === 'xlsx') {
-            // Complex Seating Plan Format
+            // Seating Plan Format
             setIsExporting(true);
             try {
                 const backendUrl = import.meta.env?.VITE_BACKEND_URL || 'http://localhost:5000';
@@ -194,43 +194,53 @@ export default function AdminScheduleGenerator() {
                 const allStudents = await studentsRes.json();
                 const allTimetables = await timetablesRes.json();
 
-                let rows = [];
-                let srNo = 1;
+                // Sort generatedSchedule chronologically by date and start time
+                const sortedExams = [...generatedSchedule].sort((a, b) => {
+                    if (a.date !== b.date) return (a.date || '').localeCompare(b.date || '');
+                    return (a.startTime || '').localeCompare(b.startTime || '');
+                });
 
-                // Build detailed student-by-student mapping based on the scheduled course batches
-                generatedSchedule.forEach(exam => {
-                    exam.batches.forEach(batch => {
+                const studentExamsMap = new Map(); // registration_no -> Set of exam indices
+                const studentDetailsMap = new Map(); // registration_no -> student object
+
+                // Map which students are enrolled in which scheduled exams
+                sortedExams.forEach((exam, examIdx) => {
+                    (exam.batches || []).forEach(batch => {
                         const ttInfo = allTimetables.find(t => t.id === batch.timetable_id);
                         if (!ttInfo) return;
 
-                        const yearPrefix = ttInfo.batch_year.toString().substring(2, 4);
-                        
-                        const batchStudents = allStudents.filter(s =>
-                            s.registration_no.startsWith(yearPrefix) &&
-                            (s.stream || '').toUpperCase() === (ttInfo.stream || '').toUpperCase()
-                        );
+                        const yearPrefix = ttInfo.batch_year ? ttInfo.batch_year.toString().substring(2, 4) : '';
+                        const targetStream = (ttInfo.stream || '').toUpperCase();
 
-                        batchStudents.forEach(student => {
-                            rows.push({
-                                'Sr. No.': srNo++,
-                                'Programme': ttInfo.stream,
-                                'Sem': ttInfo.semester,
-                                'Group': '', 
-                                'Course Code': exam.course_code,
-                                'Course Name': exam.title,
-                                'Total Students': batchStudents.length,
-                                'Reg No': student.registration_no,
-                                'Name of Student': student.username,
-                                'Has Room': 'False' // Specific UI request handling (True/False based on Room mapping)
-                            });
+                        allStudents.forEach(s => {
+                            const studentReg = s.registration_no || '';
+                            const studentStream = (s.stream || '').toUpperCase();
+
+                            const matchesYear = yearPrefix ? studentReg.startsWith(yearPrefix) : true;
+                            const matchesStream = targetStream ? studentStream === targetStream : true;
+
+                            if (matchesYear && matchesStream && studentReg) {
+                                if (!studentExamsMap.has(studentReg)) {
+                                    studentExamsMap.set(studentReg, new Set());
+                                    studentDetailsMap.set(studentReg, s);
+                                }
+                                studentExamsMap.get(studentReg).add(examIdx);
+                            }
                         });
                     });
                 });
 
-                if (rows.length === 0) {
+                // Sort students by Stream, then by Registration No
+                const involvedStudents = Array.from(studentDetailsMap.values()).sort((a, b) => {
+                    const streamComp = (a.stream || '').localeCompare(b.stream || '');
+                    if (streamComp !== 0) return streamComp;
+                    return (a.registration_no || '').localeCompare(b.registration_no || '');
+                });
+
+                if (involvedStudents.length === 0) {
                     alert("No students found registered for the scheduled batches. Generating basic schedule instead.");
                     const exportData = generatedSchedule.map(item => {
-                        const batchesMapped = item.batches.map(b => b.name).join(', ');
+                        const batchesMapped = (item.batches || []).map(b => b.name).join(', ');
                         return {
                             "Date": item.date,
                             "Slot Name": item.slotName,
@@ -249,25 +259,262 @@ export default function AdminScheduleGenerator() {
                     return;
                 }
 
-                // Format the Excel sheet perfectly
-                const worksheet = XLSX.utils.json_to_sheet(rows);
-                worksheet['!cols'] = [
-                    { wch: 8 },  // Sr. No.
-                    { wch: 20 }, // Programme
-                    { wch: 8 },  // Sem
-                    { wch: 10 }, // Group
-                    { wch: 15 }, // Course Code
-                    { wch: 40 }, // Course Name
-                    { wch: 15 }, // Total Students
-                    { wch: 20 }, // Reg No
-                    { wch: 30 }, // Name of Student
-                    { wch: 12 }, // Has Room
+                // Helper to format date as DD.MM.YYYY
+                const formatExamDate = (dateStr) => {
+                    if (!dateStr) return '';
+                    const parts = dateStr.split('-');
+                    if (parts.length === 3) {
+                        return `${parts[2]}.${parts[1]}.${parts[0]}`;
+                    }
+                    return dateStr;
+                };
+
+                // Helper to format day as MONDAY, TUESDAY, etc.
+                const formatExamDay = (dateStr) => {
+                    if (!dateStr) return '';
+                    const parts = dateStr.split('-');
+                    if (parts.length === 3) {
+                        const dt = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+                        return dt.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase();
+                    }
+                    return '';
+                };
+
+                // Header rows: Rows 1 to 4 (Enrollment No removed)
+                const row1 = ["", "", "", "DATE OF EXAM"];
+                const row2 = ["", "", "", "DAY"];
+                const row3 = ["", "", "", "SHIFT"];
+                const row4 = ["S#", "Stream", "Registration No", "Name"];
+
+                sortedExams.forEach(exam => {
+                    row1.push(formatExamDate(exam.date));
+                    row2.push(formatExamDay(exam.date));
+                    row3.push((exam.slotName || '').toUpperCase());
+                    row4.push((exam.title || exam.course_code || '').toUpperCase());
+                });
+
+                const aoaData = [row1, row2, row3, row4];
+
+                // Student data rows: Row 5 onwards
+                involvedStudents.forEach((student, index) => {
+                    const rowData = [
+                        index + 1, // S#
+                        student.stream || 'N/A', // Stream
+                        student.registration_no || 'N/A', // Registration No
+                        student.username || 'N/A' // Name
+                    ];
+
+                    const examSet = studentExamsMap.get(student.registration_no);
+
+                    sortedExams.forEach((exam, examIdx) => {
+                        if (examSet && examSet.has(examIdx)) {
+                            rowData.push("True");
+                        } else {
+                            rowData.push("--");
+                        }
+                    });
+
+                    aoaData.push(rowData);
+                });
+
+                const worksheet = XLSX.utils.aoa_to_sheet(aoaData);
+
+                // Apply color coding and styling matching the requirements
+                const borderBlack = {
+                    top: { style: 'thin', color: { rgb: '000000' } },
+                    bottom: { style: 'thin', color: { rgb: '000000' } },
+                    left: { style: 'thin', color: { rgb: '000000' } },
+                    right: { style: 'thin', color: { rgb: '000000' } }
+                };
+
+                const ensureCell = (ws, r, c, defaultVal = '') => {
+                    const ref = XLSX.utils.encode_cell({ r, c });
+                    if (!ws[ref]) {
+                        ws[ref] = { t: 's', v: defaultVal };
+                    }
+                    return ws[ref];
+                };
+
+                // Style Row 1, 2, 3: Column D (r=0, 1, 2, c=3) - "DATE OF EXAM", "DAY", "SHIFT"
+                for (let r = 0; r <= 2; r++) {
+                    const cell = ensureCell(worksheet, r, 3);
+                    cell.s = {
+                        font: { bold: true, sz: 10, name: 'Calibri' },
+                        alignment: { horizontal: 'right', vertical: 'center' },
+                        border: borderBlack
+                    };
+                }
+
+                // Style Row 4: Columns A to D (r=3, c=0..3) - "S#", "Stream", "Registration No", "Name"
+                for (let c = 0; c <= 3; c++) {
+                    const cell = ensureCell(worksheet, 3, c);
+                    cell.s = {
+                        font: { bold: true, sz: 10, name: 'Calibri' },
+                        alignment: { horizontal: 'center', vertical: 'center' },
+                        border: borderBlack
+                    };
+                }
+
+                // Morning exams: Green, Evening/Afternoon exams: Yellow
+                const getSlotColor = (slotName) => {
+                    const s = (slotName || '').toLowerCase();
+                    if (s.includes('morning')) {
+                        return { bg: '92D050', text: '000000' }; // Green
+                    }
+                    // Evening / Afternoon / other
+                    return { bg: 'FFC000', text: '000000' }; // Yellow
+                };
+
+                // Style Exam Columns (c = 4 .. 4 + sortedExams.length - 1)
+                sortedExams.forEach((exam, examIdx) => {
+                    const c = 4 + examIdx;
+                    const slotColor = getSlotColor(exam.slotName);
+
+                    // Row 1: Date of exam
+                    const cellR1 = ensureCell(worksheet, 0, c);
+                    cellR1.s = {
+                        fill: { fgColor: { rgb: slotColor.bg } },
+                        font: { bold: true, sz: 10, name: 'Calibri', color: { rgb: slotColor.text } },
+                        alignment: { horizontal: 'center', vertical: 'center' },
+                        border: borderBlack
+                    };
+
+                    // Row 2: Day of exam
+                    const cellR2 = ensureCell(worksheet, 1, c);
+                    cellR2.s = {
+                        fill: { fgColor: { rgb: slotColor.bg } },
+                        font: { bold: true, sz: 10, name: 'Calibri', color: { rgb: slotColor.text } },
+                        alignment: { horizontal: 'center', vertical: 'center' },
+                        border: borderBlack
+                    };
+
+                    // Row 3: Shift
+                    const cellR3 = ensureCell(worksheet, 2, c);
+                    cellR3.s = {
+                        fill: { fgColor: { rgb: slotColor.bg } },
+                        font: { bold: true, sz: 10, name: 'Calibri', color: { rgb: slotColor.text } },
+                        alignment: { horizontal: 'center', vertical: 'center' },
+                        border: borderBlack
+                    };
+
+                    // Row 4: Subject Name
+                    const cellR4 = ensureCell(worksheet, 3, c);
+                    cellR4.s = {
+                        fill: { fgColor: { rgb: slotColor.bg } },
+                        font: { bold: true, sz: 9, name: 'Calibri', color: { rgb: slotColor.text } },
+                        alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+                        border: borderBlack
+                    };
+                });
+
+                // Color code streams for different sections
+                const distinctStreams = [...new Set(involvedStudents.map(s => s.stream || 'N/A'))];
+                const STREAM_PALETTE = [
+                    'D9E1F2', // Soft blue
+                    'FCE4D6', // Soft peach/orange
+                    'E2EFDA', // Soft green
+                    'FFF2CC', // Soft yellow
+                    'F2DCDB', // Soft rose
+                    'E8D8F8', // Soft lavender
+                    'D9F2E6', // Soft mint
+                    'EDEDED'  // Soft gray
+                ];
+                const streamColorMap = new Map();
+                distinctStreams.forEach((st, idx) => {
+                    streamColorMap.set(st, STREAM_PALETTE[idx % STREAM_PALETTE.length]);
+                });
+
+                // Style Student Data Rows (r = 4 .. 4 + involvedStudents.length - 1)
+                involvedStudents.forEach((student, sIdx) => {
+                    const r = 4 + sIdx;
+
+                    // Col A: S#
+                    const cellS = ensureCell(worksheet, r, 0);
+                    cellS.s = {
+                        font: { sz: 10, name: 'Calibri' },
+                        alignment: { horizontal: 'center', vertical: 'center' },
+                        border: borderBlack
+                    };
+
+                    // Col B: Stream (Color coded per section/stream)
+                    const streamBg = streamColorMap.get(student.stream || 'N/A') || 'FFFFFF';
+                    const cellStream = ensureCell(worksheet, r, 1);
+                    cellStream.s = {
+                        fill: { fgColor: { rgb: streamBg } },
+                        font: { sz: 10, name: 'Calibri', bold: true },
+                        alignment: { horizontal: 'center', vertical: 'center' },
+                        border: borderBlack
+                    };
+
+                    // Col C: Registration No
+                    const cellReg = ensureCell(worksheet, r, 2);
+                    cellReg.s = {
+                        font: { sz: 10, name: 'Calibri' },
+                        alignment: { horizontal: 'center', vertical: 'center' },
+                        border: borderBlack
+                    };
+
+                    // Col D: Name
+                    const cellName = ensureCell(worksheet, r, 3);
+                    cellName.s = {
+                        font: { sz: 10, name: 'Calibri' },
+                        alignment: { horizontal: 'left', vertical: 'center' },
+                        border: borderBlack
+                    };
+
+                    // Exam columns for each student (c = 4 + examIdx)
+                    const examSet = studentExamsMap.get(student.registration_no);
+                    sortedExams.forEach((exam, examIdx) => {
+                        const c = 4 + examIdx;
+                        const cellExam = ensureCell(worksheet, r, c);
+                        const hasExam = examSet && examSet.has(examIdx);
+
+                        cellExam.s = {
+                            font: { sz: 10, name: 'Calibri', bold: hasExam },
+                            alignment: { horizontal: 'center', vertical: 'center' },
+                            border: borderBlack
+                        };
+                    });
+                });
+
+                // Configure row heights
+                worksheet['!rows'] = [
+                    { hpt: 20 }, // Row 1 (Date)
+                    { hpt: 20 }, // Row 2 (Day)
+                    { hpt: 20 }, // Row 3 (Shift)
+                    { hpt: 45 }, // Row 4 (Subject Titles, wrapped)
+                ];
+                for (let i = 0; i < involvedStudents.length; i++) {
+                    worksheet['!rows'].push({ hpt: 22 });
+                }
+
+                // Freeze first 4 columns (A-D: S#, Stream, Reg No, Name) and first 4 rows (1-4)
+                worksheet['!views'] = [
+                    {
+                        state: 'frozen',
+                        xSplit: 4,
+                        ySplit: 4,
+                        topLeftCell: 'E5',
+                        activePane: 'bottomRight'
+                    }
                 ];
 
+                // Set column widths (Enrollment No removed)
+                const colWidths = [
+                    { wch: 6 },  // S#
+                    { wch: 16 }, // Stream
+                    { wch: 22 }, // Registration No
+                    { wch: 30 }, // Name
+                ];
+                sortedExams.forEach(() => {
+                    colWidths.push({ wch: 25 });
+                });
+                worksheet['!cols'] = colWidths;
+
                 const workbook = XLSX.utils.book_new();
-                XLSX.utils.book_append_sheet(workbook, worksheet, "Seating Plan");
+                XLSX.utils.book_append_sheet(workbook, worksheet, "SEATING PLAN");
                 XLSX.writeFile(workbook, `Seating_Plan_${startDate}_to_${endDate}.xlsx`);
-                
+
             } catch (error) {
                 console.error("Export Error:", error);
                 alert("Failed to export seating plan.");
