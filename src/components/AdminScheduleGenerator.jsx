@@ -43,20 +43,11 @@ export default function AdminScheduleGenerator() {
         setSlots([...slots, { id: newId, name: `Slot ${slots.length + 1}`, startTime: '09:00', endTime: '12:00' }]);
     };
 
-    const handleRemoveSlot = (id) => {
-        setSlots(slots.filter(s => s.id !== id));
-    };
-
-    const handleSlotChange = (id, field, value) => {
-        setSlots(slots.map(s => s.id === id ? { ...s, [field]: value } : s));
-    };
+    const handleRemoveSlot = (id) => { setSlots(slots.filter(s => s.id !== id)); };
+    const handleSlotChange = (id, field, value) => { setSlots(slots.map(s => s.id === id ? { ...s, [field]: value } : s)); };
 
     const handleReset = () => {
-        setStep(1);
-        setGeneratedSchedule([]);
-        setClashes([]);
-        setSuccessMsg(null);
-        setError(null);
+        setStep(1); setGeneratedSchedule([]); setClashes([]); setSuccessMsg(null); setError(null);
     };
 
     const handleGenerate = async () => {
@@ -64,15 +55,12 @@ export default function AdminScheduleGenerator() {
         if (new Date(startDate) > new Date(endDate)) { setError('Start date cannot be after end date.'); return; }
         if (slots.length === 0) { setError('Please configure at least one time slot.'); return; }
 
-        setIsLoading(true);
-        setError(null);
-        setSuccessMsg(null);
+        setIsLoading(true); setError(null); setSuccessMsg(null);
 
         try {
             const backendUrl = import.meta.env?.VITE_BACKEND_URL || 'http://localhost:5000';
             const response = await fetch(`${backendUrl}/api/admin/schedule/generate-preview`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ startDate, endDate, slots })
             });
             const data = await response.json();
@@ -80,33 +68,24 @@ export default function AdminScheduleGenerator() {
                 setGeneratedSchedule(data.schedule || []);
                 setClashes(data.clashes || []);
                 setStep(2);
-            } else {
-                setError(data.error || 'Failed to generate schedule.');
-            }
-        } catch (err) {
-            setError('Server connection failed. Could not reach backend.');
-        } finally {
-            setIsLoading(false);
-        }
+            } else { setError(data.error || 'Failed to generate schedule.'); }
+        } catch (err) { setError('Server connection failed. Could not reach backend.'); } 
+        finally { setIsLoading(false); }
     };
 
     const handleCommit = async () => {
-        setIsLoading(true);
-        setError(null);
+        setIsLoading(true); setError(null);
         try {
             const backendUrl = import.meta.env?.VITE_BACKEND_URL || 'http://localhost:5000';
             const response = await fetch(`${backendUrl}/api/admin/schedule/commit-generated`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ schedule: generatedSchedule })
             });
             const data = await response.json();
             if (response.ok) {
                 setSuccessMsg('Schedule successfully finalized and saved to the database.');
                 setStep(3);
-            } else {
-                setError(data.error || 'Failed to commit schedule.');
-            }
+            } else { setError(data.error || 'Failed to commit schedule.'); }
         } catch (err) { setError('Server connection failed. Could not save.'); } 
         finally { setIsLoading(false); }
     };
@@ -115,10 +94,8 @@ export default function AdminScheduleGenerator() {
         const backendUrl = import.meta.env?.VITE_BACKEND_URL || 'http://localhost:5000';
         
         const [studentsRes, timetablesRes, roomsRes, structuresRes] = await Promise.all([
-            fetch(`${backendUrl}/api/admin/students`),
-            fetch(`${backendUrl}/api/admin/timetables`),
-            fetch(`${backendUrl}/api/admin/rooms`),
-            fetch(`${backendUrl}/api/admin/room-structures`)
+            fetch(`${backendUrl}/api/admin/students`), fetch(`${backendUrl}/api/admin/timetables`),
+            fetch(`${backendUrl}/api/admin/rooms`), fetch(`${backendUrl}/api/admin/room-structures`)
         ]);
 
         if (!studentsRes.ok || !timetablesRes.ok || !roomsRes.ok || !structuresRes.ok) throw new Error("Failed fetching allocation data.");
@@ -128,11 +105,11 @@ export default function AdminScheduleGenerator() {
         const allRooms = await roomsRes.json();
         const allStructures = await structuresRes.json();
 
-        // Organize seats per room
+        // Map Valid seats to Rooms
         const roomsWithSeats = allRooms.map(r => ({
             ...r,
             seats: allStructures
-                .filter(s => s.room_id === r.id)
+                .filter(s => s.room_id === r.id && s.is_usable) // only map usable seats
                 .sort((a,b) => a.row_number - b.row_number || a.column_number - b.column_number)
         })).filter(r => r.seats.length > 0);
 
@@ -143,7 +120,6 @@ export default function AdminScheduleGenerator() {
 
         const slotsMap = new Map();
         
-        // Find which student takes which exam inside the same slot
         sortedExams.forEach((exam, examIdx) => {
             const slotKey = `${exam.date}_${exam.startTime}_${exam.endTime}`;
             if (!slotsMap.has(slotKey)) slotsMap.set(slotKey, { exams: [], studentsToAllocate: [] });
@@ -161,8 +137,7 @@ export default function AdminScheduleGenerator() {
                     const studentReg = s.registration_no || '';
                     const studentStream = (s.stream || '').toUpperCase();
                     if ((yearPrefix ? studentReg.startsWith(yearPrefix) : true) && 
-                        (targetStream ? studentStream === targetStream : true) && 
-                        studentReg) {
+                        (targetStream ? studentStream === targetStream : true) && studentReg) {
                         slotData.studentsToAllocate.push({ student: s, exam: exam, examIdx: examIdx });
                     }
                 });
@@ -170,25 +145,18 @@ export default function AdminScheduleGenerator() {
         });
 
         const studentExamRoomMap = {}; // Maps "regNo_examIdx" -> "roomName"
-        const seatingPlansData = []; // To build physical seating sheets
+        const seatingPlansData = []; 
 
-        // Perform Room & Seat allocation per time slot
         slotsMap.forEach((slotData, slotKey) => {
-            // Group students logically by course code
             const examQueuesMap = new Map();
             slotData.studentsToAllocate.forEach(item => {
                 if (!examQueuesMap.has(item.exam.course_code)) {
-                    examQueuesMap.set(item.exam.course_code, {
-                        exam: item.exam,
-                        examIdx: item.examIdx,
-                        students: []
-                    });
+                    examQueuesMap.set(item.exam.course_code, { exam: item.exam, examIdx: item.examIdx, students: [] });
                 }
                 examQueuesMap.get(item.exam.course_code).students.push(item);
             });
 
             let examQueues = Array.from(examQueuesMap.values());
-            // Sort students within each queue by registration number
             examQueues.forEach(q => q.students.sort((a, b) => (a.student.registration_no || '').localeCompare(b.student.registration_no || '')));
 
             let currentRoomIdx = 0;
@@ -198,33 +166,28 @@ export default function AdminScheduleGenerator() {
                 let room = slotRooms[currentRoomIdx];
                 
                 let currentRoomSeating = {
-                    room: room, slotKey,
-                    date: slotData.exams[0]?.date, 
-                    startTime: slotData.exams[0]?.startTime, 
-                    endTime: slotData.exams[0]?.endTime, 
-                    slotName: slotData.exams[0]?.slotName,
-                    allocations: []
+                    room: room, slotKey, date: slotData.exams[0]?.date, 
+                    startTime: slotData.exams[0]?.startTime, endTime: slotData.exams[0]?.endTime, 
+                    slotName: slotData.exams[0]?.slotName, allocations: []
                 };
 
                 let currentRow = -1;
                 let prevExamCode = null;
 
+                // Seat assignment logic (with Column Gap / Interleave requirement)
                 for (const seat of room.seats) {
                     if (seat.row_number !== currentRow) {
                         currentRow = seat.row_number;
-                        prevExamCode = null; // Start fresh for a new row
+                        prevExamCode = null; // Start fresh for a new row to allow same exam alignment vertically if needed
                     }
 
-                    // Filter out empty queues
                     examQueues = examQueues.filter(q => q.students.length > 0);
                     if (examQueues.length === 0) break;
-
-                    // Sort queues by size descending to balance them across the room evenly
                     examQueues.sort((a, b) => b.students.length - a.students.length);
 
-                    // Find best queue (must be different from previous seat in this row to ensure column gap)
                     let selectedQueue = null;
                     for (let i = 0; i < examQueues.length; i++) {
+                        // Prevent students of the exact same exam from sitting left/right of each other
                         if (examQueues[i].exam.course_code !== prevExamCode) {
                             selectedQueue = examQueues[i];
                             break;
@@ -237,22 +200,18 @@ export default function AdminScheduleGenerator() {
                         studentExamRoomMap[`${item.student.registration_no}_${selectedQueue.examIdx}`] = room.room_name;
                         prevExamCode = selectedQueue.exam.course_code;
                     } else {
-                        // Have to skip this seat to maintain column gap (e.g., only 1 course is left)
+                        // Empty gap left intentionally, so next iteration the original exam can be seated again
                         prevExamCode = 'EMPTY';
                     }
                 }
 
-                if (currentRoomSeating.allocations.length > 0) {
-                    seatingPlansData.push(currentRoomSeating);
-                }
+                if (currentRoomSeating.allocations.length > 0) seatingPlansData.push(currentRoomSeating);
                 currentRoomIdx++;
             }
 
-            // Mark remaining unallocated as TBA
+            // Unallocated fallbacks
             examQueues.forEach(q => {
-                q.students.forEach(item => {
-                    studentExamRoomMap[`${item.student.registration_no}_${q.examIdx}`] = 'TBA';
-                });
+                q.students.forEach(item => { studentExamRoomMap[`${item.student.registration_no}_${q.examIdx}`] = 'TBA'; });
             });
         });
 
@@ -266,26 +225,143 @@ export default function AdminScheduleGenerator() {
         });
 
         return { 
-            sortedExams, 
-            involvedStudents: Array.from(involvedStudentsMap.values()), 
-            studentExamRoomMap, 
-            seatingPlansData 
+            sortedExams, involvedStudents: Array.from(involvedStudentsMap.values()), 
+            studentExamRoomMap, seatingPlansData 
         };
     };
 
     const handleDownload = async (format) => {
-        if (!generatedSchedule || generatedSchedule.length === 0) {
-            alert("No schedule generated to download."); return;
-        }
+        if (!generatedSchedule || generatedSchedule.length === 0) { alert("No schedule generated to download."); return; }
 
         const fileName = `Exam_Schedule_${startDate}_to_${endDate}`;
+        const borderBlack = { top: { style: 'thin', color: { rgb: '000000' } }, bottom: { style: 'thin', color: { rgb: '000000' } }, left: { style: 'thin', color: { rgb: '000000' } }, right: { style: 'thin', color: { rgb: '000000' } } };
+        const ensureCell = (ws, r, c, defaultVal = '') => { const ref = XLSX.utils.encode_cell({ r, c }); if (!ws[ref]) ws[ref] = { t: 's', v: defaultVal }; return ws[ref]; };
+
+        if (format === 'xlsx-datesheet') {
+            setIsExporting(true);
+            try {
+                // Parse schedule grouping by Year
+                const batchMap = new Map();
+                generatedSchedule.forEach(exam => {
+                    const processedYears = new Set();
+                    (exam.batches || []).forEach(b => {
+                        const match = b.name.match(/\((\d{4})\)/);
+                        const year = match ? match[1] : 'Unknown Batch';
+                        if (!processedYears.has(year)) {
+                            processedYears.add(year);
+                            if (!batchMap.has(year)) batchMap.set(year, []);
+                            batchMap.get(year).push(exam);
+                        }
+                    });
+                });
+
+                const sortedYears = Array.from(batchMap.keys()).sort((a,b) => a.localeCompare(b)); // e.g. 2023, 2024...
+                
+                const formatDatesheetDate = (dateStr) => {
+                    if (!dateStr) return '';
+                    const dt = new Date(dateStr);
+                    return `${dt.getDate()} ${dt.toLocaleString('en-US', { month: 'long' }).toUpperCase()} ${dt.getFullYear()}`;
+                };
+                
+                const getSlotIndicator = (startTime) => {
+                    if (!startTime) return '';
+                    const hour = parseInt(startTime.split(':')[0], 10);
+                    if (hour < 12) return 'M'; // Morning
+                    if (hour < 16) return 'A'; // Afternoon
+                    return 'E'; // Evening
+                };
+
+                const aoa = [];
+                aoa.push(["MID SEMESTER EXAMINATION DATESHEET"]);
+                aoa.push([`${formatDatesheetDate(startDate)} - ${formatDatesheetDate(endDate)}`]);
+                aoa.push(["SLOT: M = MORNING (10:00 AM Onwards), A = AFTERNOON (2:00 PM Onwards), E = EVENING (4:00 PM Onwards)"]);
+                aoa.push([]);
+
+                const merges = [
+                    { s: {r:0, c:0}, e: {r:0, c:3} },
+                    { s: {r:1, c:0}, e: {r:1, c:3} },
+                    { s: {r:2, c:0}, e: {r:2, c:3} }
+                ];
+
+                let rowIndex = 4; 
+                const BATCH_COLORS = ['D9E1F2', 'FCE4D6', 'E2EFDA', 'FFF2CC', 'F2DCDB'];
+                const styleMap = []; 
+
+                sortedYears.forEach((year, yIdx) => {
+                    const exams = batchMap.get(year);
+                    exams.sort((a,b) => {
+                        if (a.date !== b.date) return (a.date || '').localeCompare(b.date || '');
+                        return (a.startTime || '').localeCompare(b.startTime || '');
+                    });
+
+                    // Add Batch Header
+                    aoa.push([`BATCH ${year}`, "", "", ""]);
+                    merges.push({ s: {r: rowIndex, c:0}, e: {r: rowIndex, c:3} });
+                    styleMap.push({ r: rowIndex, type: 'batchHeader', color: BATCH_COLORS[yIdx % BATCH_COLORS.length] });
+                    rowIndex++;
+
+                    // Add Column Headers
+                    aoa.push(["COURSE CODE", "COURSE", "DATE", "SLOT"]);
+                    styleMap.push({ r: rowIndex, type: 'tableHeader' });
+                    rowIndex++;
+
+                    // Add Data
+                    exams.forEach(exam => {
+                        aoa.push([
+                            exam.course_code,
+                            exam.title,
+                            formatDatesheetDate(exam.date),
+                            getSlotIndicator(exam.startTime)
+                        ]);
+                        styleMap.push({ r: rowIndex, type: 'dataRow' });
+                        rowIndex++;
+                    });
+
+                    aoa.push(["", "", "", ""]); 
+                    rowIndex++;
+                });
+
+                const ws = XLSX.utils.aoa_to_sheet(aoa);
+                ws['!merges'] = merges;
+                
+                // Titles Styling
+                ensureCell(ws, 0,0).s = { font: { bold: true, sz: 14, name: 'Calibri' }, alignment: { horizontal: 'center' } };
+                ensureCell(ws, 1,0).s = { font: { bold: true, sz: 12, name: 'Calibri' }, alignment: { horizontal: 'center' } };
+                ensureCell(ws, 2,0).s = { font: { bold: true, sz: 11, name: 'Calibri' }, alignment: { horizontal: 'center' } };
+
+                // Row Styling
+                styleMap.forEach(st => {
+                    if (st.type === 'batchHeader') {
+                        const cell = ensureCell(ws, st.r, 0);
+                        cell.s = { fill: { fgColor: { rgb: st.color } }, font: { bold: true, sz: 12, name: 'Calibri' }, alignment: { horizontal: 'left', vertical: 'center' }, border: borderBlack };
+                        for(let c=1; c<=3; c++) ensureCell(ws, st.r, c).s = { border: borderBlack, fill: { fgColor: { rgb: st.color } } }; 
+                    } else if (st.type === 'tableHeader') {
+                        for(let c=0; c<=3; c++) {
+                            ensureCell(ws, st.r, c).s = { fill: { fgColor: { rgb: 'F2F2F2' } }, font: { bold: true, sz: 11, name: 'Calibri' }, alignment: { horizontal: 'center', vertical: 'center' }, border: borderBlack };
+                        }
+                    } else if (st.type === 'dataRow') {
+                        for(let c=0; c<=3; c++) {
+                            ensureCell(ws, st.r, c).s = { font: { sz: 10, name: 'Calibri' }, alignment: { horizontal: c===1?'left':'center', vertical: 'center', wrapText: true }, border: borderBlack };
+                        }
+                    }
+                });
+
+                ws['!cols'] = [{wch: 15}, {wch: 60}, {wch: 20}, {wch: 15}];
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, "Datesheet");
+                XLSX.writeFile(wb, `Mid_Sem_Datesheet_${startDate}.xlsx`);
+
+            } catch (error) {
+                console.error(error); alert("Failed to export Datesheet.");
+            } finally { setIsExporting(false); }
+            return;
+        }
 
         if (format === 'csv') {
             const exportData = generatedSchedule.map(item => {
-                const batchesMapped = item.batches.map(b => b.name).join(', ');
                 return {
                     "Date": item.date, "Slot Name": item.slotName, "Start Time": item.startTime, "End Time": item.endTime,
-                    "Course Code": item.course_code, "Course Title": item.title, "Batches Scheduled": batchesMapped
+                    "Course Code": item.course_code, "Course Title": item.title, "Batches Scheduled": item.batches.map(b => b.name).join(', ')
                 };
             });
             const worksheet = XLSX.utils.json_to_sheet(exportData);
@@ -299,15 +375,12 @@ export default function AdminScheduleGenerator() {
             try {
                 const { sortedExams, involvedStudents, studentExamRoomMap, seatingPlansData } = await performAllocation();
 
-                const borderBlack = { top: { style: 'thin', color: { rgb: '000000' } }, bottom: { style: 'thin', color: { rgb: '000000' } }, left: { style: 'thin', color: { rgb: '000000' } }, right: { style: 'thin', color: { rgb: '000000' } } };
-                const ensureCell = (ws, r, c, defaultVal = '') => { const ref = XLSX.utils.encode_cell({ r, c }); if (!ws[ref]) ws[ref] = { t: 's', v: defaultVal }; return ws[ref]; };
-                const formatExamDate = (dateStr) => { if (!dateStr) return ''; const parts = dateStr.split('-'); if (parts.length === 3) return `${parts[2]}.${parts[1]}.${parts[0]}`; return dateStr; };
-                const formatExamDay = (dateStr) => { if (!dateStr) return ''; const parts = dateStr.split('-'); if (parts.length === 3) return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])).toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase(); return ''; };
+                const formatExamDate = (dateStr) => { if (!dateStr) return ''; const parts = dateStr.split('-'); return parts.length === 3 ? `${parts[2]}.${parts[1]}.${parts[0]}` : dateStr; };
+                const formatExamDay = (dateStr) => { if (!dateStr) return ''; const parts = dateStr.split('-'); return parts.length === 3 ? new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])).toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase() : ''; };
 
                 const workbook = XLSX.utils.book_new();
 
                 if (format === 'xlsx-master') {
-                    // MASTER ALLOCATION EXPORT
                     involvedStudents.sort((a, b) => {
                         const streamComp = (a.stream || '').localeCompare(b.stream || '');
                         return streamComp !== 0 ? streamComp : (a.registration_no || '').localeCompare(b.registration_no || '');
@@ -366,7 +439,6 @@ export default function AdminScheduleGenerator() {
                     XLSX.writeFile(workbook, `Master_Allocation_${startDate}.xlsx`);
 
                 } else if (format === 'xlsx-seating') {
-                    // DETAILED SEATING PLANS EXPORT
                     seatingPlansData.forEach((plan, planIdx) => {
                         const maxCol = Math.max(...plan.room.seats.map(s => s.column_number), 1);
                         const maxRow = Math.max(...plan.room.seats.map(s => s.row_number), 1);
@@ -377,16 +449,14 @@ export default function AdminScheduleGenerator() {
                         aoa.push(["UG PROG. SOET MID TERM EXAMINATION"]);
                         aoa.push([`SEATING LAYOUT PLAN : ${plan.room.room_name}`]); 
                         
-                        // Parse date for fancy display
                         const fDate = new Date(plan.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).replace(/ /g, '-');
-                        // Use raw times for formatting
                         const fTime = `${plan.startTime} to ${plan.endTime}`;
                         
                         aoa.push([`${fDate} ${fTime}`]); 
                         aoa.push([`${uniqueCourses} , Session :- ${plan.slotName}`]); 
 
                         const colHeaders = [""];
-                        for(let c=1; c<=maxCol; c++) colHeaders.push(String.fromCharCode(64 + c)); // A, B, C...
+                        for(let c=1; c<=maxCol; c++) colHeaders.push(String.fromCharCode(64 + c)); 
                         aoa.push(colHeaders); 
 
                         for(let r=1; r<=maxRow; r++) {
@@ -404,7 +474,6 @@ export default function AdminScheduleGenerator() {
 
                         const ws = XLSX.utils.aoa_to_sheet(aoa);
 
-                        // Merge headers across the grid width (maxCol)
                         ws['!merges'] = [
                             { s: {r:0, c:0}, e: {r:0, c: maxCol} },
                             { s: {r:1, c:0}, e: {r:1, c: maxCol} },
@@ -417,11 +486,11 @@ export default function AdminScheduleGenerator() {
                            const cell = ensureCell(ws, r, 0);
                            cell.s = { font: { bold: true, sz: 12, name: 'Calibri', color: {rgb:'000080'} }, alignment: { horizontal: 'center', vertical: 'center' }, border: borderBlack };
                            if(r === 0) cell.s.font.sz = 14;
-                           for(let c=1; c<=maxCol; c++) ensureCell(ws, r, c).s = { border: borderBlack }; // Fills out borders across merge
+                           for(let c=1; c<=maxCol; c++) ensureCell(ws, r, c).s = { border: borderBlack }; 
                         }
 
                         for(let r=5; r<=5+maxRow; r++) {
-                            // Zebra striping for data rows to "color code each row"
+                            // Perfect Zebra striping to match your exact requested reference!
                             const dataRowIdx = r - 6; 
                             const rowColor = dataRowIdx >= 0 ? (dataRowIdx % 2 === 0 ? 'FFFFFF' : 'F4F6F8') : 'FFFFFF';
 
@@ -432,27 +501,21 @@ export default function AdminScheduleGenerator() {
                                 
                                 if (r > 5 && c > 0) {
                                     if (cell.v) {
-                                        // Seat occupied
-                                        cell.s.fill = { fgColor: { rgb: rowColor } };
+                                        cell.s.fill = { fgColor: { rgb: rowColor } }; // Zebra stripe logic
                                     } else {
-                                        // Empty Seat / Gap for column separation / Aisle
-                                        cell.s.fill = { fgColor: { rgb: 'E2E8F0' } }; 
+                                        cell.s.fill = { fgColor: { rgb: 'E2E8F0' } }; // Aisle gray background
                                     }
                                 }
                             }
                         }
 
                         ws['!rows'] = [{hpt: 25}, {hpt: 20}, {hpt: 20}, {hpt: 20}, {hpt: 20}, {hpt: 20}];
-                        for(let r=1; r<=maxRow; r++) ws['!rows'].push({hpt: 65}); // Tall rows
-
+                        for(let r=1; r<=maxRow; r++) ws['!rows'].push({hpt: 65}); 
                         ws['!cols'] = [{wch: 6}]; 
                         for(let c=1; c<=maxCol; c++) ws['!cols'].push({wch: 18}); 
 
-                        // Protect against duplicate sheet names / long sheet names
                         let safeSheetName = `${plan.room.room_name}_${plan.slotName}`.substring(0, 31);
-                        // If exact name exists, append random
                         if(workbook.SheetNames.includes(safeSheetName)) safeSheetName = `${safeSheetName.substring(0, 26)}_${planIdx}`;
-                        
                         XLSX.utils.book_append_sheet(workbook, ws, safeSheetName);
                     });
 
@@ -460,8 +523,7 @@ export default function AdminScheduleGenerator() {
                 }
 
             } catch (error) {
-                console.error("Export Error:", error);
-                alert("Failed to export seating plan data.");
+                console.error("Export Error:", error); alert("Failed to export seating plan data.");
             } finally { setIsExporting(false); }
         }
     };
@@ -649,16 +711,16 @@ export default function AdminScheduleGenerator() {
                                         className="flex items-center px-3 py-1.5 bg-white dark:bg-[#1a1a1a] border border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-300 rounded-lg text-sm font-medium hover:bg-slate-50 dark:hover:bg-white/5 transition-colors shadow-sm disabled:opacity-50"
                                     >
                                         {isExporting ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <Download className="w-4 h-4 mr-1.5" />}
-                                        Export
+                                        Export Options
                                         <ChevronDown className={`w-4 h-4 ml-1.5 transition-transform ${showDownload ? 'rotate-180' : ''}`} />
                                     </button>
                                     {showDownload && !isExporting && (
-                                        <div className="absolute right-0 mt-2 w-64 bg-white dark:bg-[#1a1a1a] border border-slate-200 dark:border-white/10 rounded-xl shadow-xl z-[60] overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
-                                            <button onClick={() => { handleDownload('csv'); setShowDownload(false); }} className="block w-full text-left px-4 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">Download Summary CSV</button>
+                                        <div className="absolute right-0 mt-2 w-72 bg-white dark:bg-[#1a1a1a] border border-slate-200 dark:border-white/10 rounded-xl shadow-xl z-[60] overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                                            <button onClick={() => { handleDownload('xlsx-datesheet'); setShowDownload(false); }} className="block w-full text-left px-4 py-2.5 text-sm font-medium text-purple-600 dark:text-purple-400 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">Download Mid-Sem Datesheet</button>
                                             <div className="h-px w-full bg-slate-100 dark:bg-white/5"></div>
-                                            <button onClick={() => { handleDownload('xlsx-master'); setShowDownload(false); }} className="block w-full text-left px-4 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">Download Master Allocations (XLSX)</button>
+                                            <button onClick={() => { handleDownload('xlsx-master'); setShowDownload(false); }} className="block w-full text-left px-4 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">Download Master Allocation</button>
                                             <div className="h-px w-full bg-slate-100 dark:bg-white/5"></div>
-                                            <button onClick={() => { handleDownload('xlsx-seating'); setShowDownload(false); }} className="block w-full text-left px-4 py-2.5 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">Download Seating Plans (XLSX)</button>
+                                            <button onClick={() => { handleDownload('xlsx-seating'); setShowDownload(false); }} className="block w-full text-left px-4 py-2.5 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">Download Seating Plans (Physical)</button>
                                         </div>
                                     )}
                                 </div>
@@ -775,14 +837,17 @@ export default function AdminScheduleGenerator() {
                         Generate Another Schedule
                     </button>
 
-                    <div className="mt-6 flex justify-center gap-6">
-                        <button onClick={() => handleDownload('xlsx-master')} disabled={isExporting} className="inline-flex items-center text-sm font-medium text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-50">
-                            {isExporting ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <Download className="w-4 h-4 mr-1.5" />}
-                            Download Master Allocation (Excel)
+                    <div className="mt-8 flex flex-col sm:flex-row justify-center items-center gap-4">
+                        <button onClick={() => handleDownload('xlsx-datesheet')} disabled={isExporting} className="inline-flex items-center text-sm font-medium text-purple-600 dark:text-purple-400 hover:underline disabled:opacity-50">
+                            {isExporting ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <Download className="w-4 h-4 mr-1.5" />} Download Official Datesheet
                         </button>
+                        <div className="hidden sm:block w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-700"></div>
+                        <button onClick={() => handleDownload('xlsx-master')} disabled={isExporting} className="inline-flex items-center text-sm font-medium text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-50">
+                            {isExporting ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <Download className="w-4 h-4 mr-1.5" />} Download Master Allocation
+                        </button>
+                        <div className="hidden sm:block w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-700"></div>
                         <button onClick={() => handleDownload('xlsx-seating')} disabled={isExporting} className="inline-flex items-center text-sm font-medium text-emerald-600 dark:text-emerald-400 hover:underline disabled:opacity-50">
-                            {isExporting ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <Download className="w-4 h-4 mr-1.5" />}
-                            Download Seating Plans (Excel)
+                            {isExporting ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <Download className="w-4 h-4 mr-1.5" />} Download Seating Plans
                         </button>
                     </div>
                 </div>
