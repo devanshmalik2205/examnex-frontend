@@ -18,7 +18,9 @@ import {
   TableProperties,
   Search,
   Bell,
-  Wand2
+  Wand2,
+  FileSpreadsheet,
+  Sparkles
 } from 'lucide-react';
 
 import PlasmaRing from "./components/originkit/ui/plasma-ring";
@@ -27,6 +29,7 @@ import AdminTeachers from './components/AdminTeachers';
 import AdminStudents from './components/AdminStudents';
 import AdminCourses from './components/AdminCourses';
 import AdminScheduleGenerator from './components/AdminScheduleGenerator';
+import FacultyExamRequirements from './components/FacultyExamRequirements';
 
 function SidebarImages({ role }) {
   const [imgIndex, setImgIndex] = useState(0);
@@ -275,6 +278,7 @@ export default function App() {
       case 'faculty':
         return [
           { id: 'dashboard', label: 'Overview', icon: Layout },
+          { id: 'requirements', label: 'Exam Requirements', icon: FileSpreadsheet },
           { id: 'schedule', label: 'My Schedule', icon: CalendarDays },
         ];
       case 'student':
@@ -294,6 +298,7 @@ export default function App() {
     if (userRole === 'admin' && activeTab === 'timetables') return <AdminTimetableViewer />;
     if (userRole === 'admin' && activeTab === 'courses') return <AdminCourses />;
     if (userRole === 'admin' && activeTab === 'generator') return <AdminScheduleGenerator />;
+    if (userRole === 'faculty' && activeTab === 'requirements') return <FacultyExamRequirements user={userData} />;
 
     if (activeTab === 'dashboard') {
       if (userRole === 'admin') return <AdminDashboard onNavigate={setActiveTab} />;
@@ -639,11 +644,49 @@ function AdminOverview({ onNavigate }) {
 }
 
 function FacultyDashboard({ user }) {
+  const [facultyTab, setFacultyTab] = useState('sheet');
+
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <header>
-        <h2 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white transition-colors">Faculty Portal</h2>
-        <p className="text-slate-500 dark:text-slate-400 text-sm mt-1 transition-colors">Welcome back, {user?.name || 'Faculty'}. View your invigilation duties below.</p>
+    <div className="space-y-6 max-w-[1700px] mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <div className="flex items-center space-x-1 bg-slate-100/50 dark:bg-[#161616] p-1.5 rounded-2xl w-fit border border-slate-200 dark:border-white/5">
+        <button 
+          onClick={() => setFacultyTab('sheet')}
+          className={`flex items-center px-5 py-2.5 rounded-xl text-sm font-semibold transition-all ${facultyTab === 'sheet' ? 'bg-white dark:bg-[#222] text-emerald-600 dark:text-emerald-400 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
+        >
+          <FileSpreadsheet className="w-4 h-4 mr-2 text-emerald-500" /> Exam Requirements Sheet
+        </button>
+        <button 
+          onClick={() => setFacultyTab('duties')}
+          className={`flex items-center px-5 py-2.5 rounded-xl text-sm font-semibold transition-all ${facultyTab === 'duties' ? 'bg-white dark:bg-[#222] text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
+        >
+          <CalendarDays className="w-4 h-4 mr-2" /> Invigilation Duties
+        </button>
+      </div>
+
+      {facultyTab === 'sheet' ? (
+        <FacultyExamRequirements user={user} />
+      ) : (
+        <FacultyDutiesOverview user={user} onOpenSheet={() => setFacultyTab('sheet')} />
+      )}
+    </div>
+  );
+}
+
+function FacultyDutiesOverview({ user, onOpenSheet }) {
+  return (
+    <div className="space-y-6">
+      <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white transition-colors">Faculty Portal</h2>
+          <p className="text-slate-500 dark:text-slate-400 text-sm mt-1 transition-colors">Welcome back, {user?.name || 'Faculty'}. View your invigilation duties below.</p>
+        </div>
+        <button
+          onClick={onOpenSheet}
+          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold shadow-md transition-all self-start sm:self-auto cursor-pointer"
+        >
+          <FileSpreadsheet className="w-4 h-4" />
+          <span>Open Exam Requirements Sheet</span>
+        </button>
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
