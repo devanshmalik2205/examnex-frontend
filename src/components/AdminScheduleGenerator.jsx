@@ -26,6 +26,7 @@ export default function AdminScheduleGenerator() {
     const [successMsg, setSuccessMsg] = useState(null);
 
     // Form States
+    const [dataSource, setDataSource] = useState('standard'); // 'standard' or 'sheet'
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
     const [slots, setSlots] = useState([
@@ -50,6 +51,161 @@ export default function AdminScheduleGenerator() {
         setStep(1); setGeneratedSchedule([]); setClashes([]); setSuccessMsg(null); setError(null);
     };
 
+    const generateFromSheet = async (startD, endD, activeSlots, backendUrl) => {
+        const [reqRes, ttRes, coursesRes] = await Promise.all([
+            fetch(`${backendUrl}/api/exam-requirements`),
+            fetch(`${backendUrl}/api/admin/timetables`),
+            fetch(`${backendUrl}/api/admin/courses`)
+        ]);
+        const reqs = await reqRes.json();
+        const allTimetables = await ttRes.json();
+        const allCourses = await coursesRes.json();
+
+        // Only schedule rows flagged as conducted via committee
+        const validReqs = reqs.filter(r => r.is_conducted && r.is_conducted.toLowerCase() === 'yes');
+
+        const getSemNumber = (semStr) => parseInt((String(semStr) || '').replace(/\D/g, ''), 10);
+
+        const coursesToSchedule = validReqs.map(req => {
+            const matchedCourse = allCourses.find(c => c.course_code === req.course_code) || {};
+            
+            let semNum = getSemNumber(req.semester);
+            
+            if (isNaN(semNum) && matchedCourse.taught_in && matchedCourse.taught_in.length > 0) {
+                 semNum = getSemNumber(matchedCourse.taught_in[0].semester);
+            }
+
+            let batches = allTimetables.filter(t => parseInt(t.semester, 10) === semNum).map(t => ({
+                timetable_id: t.id,
+                name: `${t.stream} - Sem ${t.semester} (${t.batch_year})`
+            }));
+            
+            // Fallback: If no strict timetables match, create a generic batch so it gets scheduled anyway.
+            if (batches.length === 0) {
+                 batches = [{
+                     timetable_id: `generic-${req.course_code}`,
+                     name: `Sem ${semNum || '?'}`
+                 }];
+            }
+
+            return {
+                course_id: matchedCourse.id || null,
+                course_code: req.course_code || 'UNKNOWN',
+                title: req.course_name || 'Untitled',
+                duration: req.duration,
+                exam_mode: req.exam_mode,
+                batches
+            };
+        });
+
+        const start = new Date(startD);
+        const end = new Date(endD);
+        const availableSlots = [];
+        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+            const dateStr = d.toISOString().split('T')[0];
+            activeSlots.forEach(s => {
+                availableSlots.push({ date: dateStr, slotName: s.name, startTime: s.startTime, endTime: s.endTime, id: `${dateStr}-${s.name}` });
+            });
+        }
+
+        const schedule = [];
+        const clashes = [];
+        const batchSchedule = {}; 
+
+        coursesToSchedule.forEach(course => {
+            // Remove the early return so it always attempts to schedule
+            if (course.batches[0]?.timetable_id.startsWith('generic-')) {
+                clashes.push({ type: 'warning', message: `No active timetable found for ${course.course_code}. Assigned globally.`});
+            }
+
+            let assignedSlot = null;
+            // Native capability to parse "Complete Day" string directly from Sheet requirements
+            const isFullDay = course.duration && course.duration.toLowerCase().includes('complete day');
+            let slotsToConsider = availableSlots;
+            if (isFullDay) {
+                slotsToConsider = availableSlots.filter(s => {
+                    const sH = parseInt(s.startTime.split(':')[0], 10);
+                    const eH = parseInt(s.endTime.split(':')[0], 10);
+                    return (eH - sH) >= 6; 
+                });
+                if (slotsToConsider.length === 0) {
+                    clashes.push({ type: 'error', message: `No full day slot available for ${course.course_code}. Please add a Full Day slot.`});
+                    return;
+                }
+            }
+
+            for (const slot of slotsToConsider) {
+                let hasClash = false;
+                let sameDayConflict = false;
+
+                for (const batch of course.batches) {
+                    if (!batchSchedule[batch.timetable_id]) batchSchedule[batch.timetable_id] = { slots: new Set(), days: new Set() };
+                    if (batchSchedule[batch.timetable_id].slots.has(slot.id)) hasClash = true;
+                    if (batchSchedule[batch.timetable_id].days.has(slot.date)) sameDayConflict = true; 
+                }
+
+                if (!hasClash && !sameDayConflict) {
+                    assignedSlot = slot;
+                    break;
+                }
+            }
+
+            if (!assignedSlot) {
+                for (const slot of slotsToConsider) {
+                    let hasExactClash = false;
+                    let conflictingBatches = [];
+
+                    for (const batch of course.batches) {
+                        if (batchSchedule[batch.timetable_id]?.slots.has(slot.id)) {
+                            hasExactClash = true;
+                            break;
+                        }
+                        if (batchSchedule[batch.timetable_id]?.days.has(slot.date)) {
+                            conflictingBatches.push(batch.name);
+                        }
+                    }
+
+                    if (!hasExactClash) {
+                        assignedSlot = slot;
+                        if (conflictingBatches.length > 0) {
+                            const uniqueBatches = [...new Set(conflictingBatches)];
+                            clashes.push({ 
+                                type: 'warning', 
+                                message: `Density Warning: ${uniqueBatches.join(', ')} have multiple different exams on ${slot.date} (Includes ${course.course_code}).` 
+                            });
+                        }
+                        break;
+                    }
+                }
+            }
+
+            if (assignedSlot) {
+                schedule.push({
+                    id: `${course.course_code}-${assignedSlot.id}`,
+                    course_id: course.course_id,
+                    course_code: course.course_code,
+                    title: course.title,
+                    date: assignedSlot.date,
+                    slotName: assignedSlot.slotName,
+                    startTime: assignedSlot.startTime,
+                    endTime: assignedSlot.endTime,
+                    batches: course.batches
+                });
+                
+                course.batches.forEach(b => {
+                    batchSchedule[b.timetable_id].slots.add(assignedSlot.id);
+                    batchSchedule[b.timetable_id].days.add(assignedSlot.date);
+                });
+            } else {
+                clashes.push({ type: 'error', message: `Severe Clash: Failed to auto-schedule ${course.course_code} - not enough conflict-free slots available in the date range.` });
+            }
+        });
+
+        schedule.sort((a, b) => new Date(`${a.date}T${a.startTime}`) - new Date(`${b.date}T${b.startTime}`));
+
+        return { schedule, clashes };
+    };
+
     const handleGenerate = async () => {
         if (!startDate || !endDate) { setError('Please select both start and end dates.'); return; }
         if (new Date(startDate) > new Date(endDate)) { setError('Start date cannot be after end date.'); return; }
@@ -59,17 +215,26 @@ export default function AdminScheduleGenerator() {
 
         try {
             const backendUrl = import.meta.env?.VITE_BACKEND_URL || 'http://localhost:5000';
-            const response = await fetch(`${backendUrl}/api/admin/schedule/generate-preview`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ startDate, endDate, slots })
-            });
-            const data = await response.json();
-            if (response.ok) {
-                setGeneratedSchedule(data.schedule || []);
-                setClashes(data.clashes || []);
+            
+            if (dataSource === 'standard') {
+                const response = await fetch(`${backendUrl}/api/admin/schedule/generate-preview`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ startDate, endDate, slots })
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    setGeneratedSchedule(data.schedule || []);
+                    setClashes(data.clashes || []);
+                    setStep(2);
+                } else { setError(data.error || 'Failed to generate schedule.'); }
+            } else {
+                // Generate from Sheet
+                const { schedule, clashes } = await generateFromSheet(startDate, endDate, slots, backendUrl);
+                setGeneratedSchedule(schedule || []);
+                setClashes(clashes || []);
                 setStep(2);
-            } else { setError(data.error || 'Failed to generate schedule.'); }
-        } catch (err) { setError('Server connection failed. Could not reach backend.'); } 
+            }
+        } catch (err) { setError('Server connection failed or generation error.'); console.error(err); } 
         finally { setIsLoading(false); }
     };
 
@@ -569,6 +734,7 @@ export default function AdminScheduleGenerator() {
                 </div>
             )}
 
+            {}
             {step === 1 && (
                 <div className="bg-white dark:bg-[#111111] p-6 sm:p-8 rounded-2xl border border-slate-200 dark:border-white/10 shadow-sm transition-colors max-w-[1200px]">
                     <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-200 mb-6 flex items-center transition-colors">
@@ -576,6 +742,20 @@ export default function AdminScheduleGenerator() {
                         Examination Period Configuration
                     </h3>
                     
+                    <div className="mb-8">
+                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 transition-colors">Data Source</label>
+                        <div className="flex items-center space-x-4">
+                            <label className="flex items-center space-x-2">
+                                <input type="radio" name="datasource" value="standard" checked={dataSource === 'standard'} onChange={(e) => setDataSource(e.target.value)} className="text-blue-600 focus:ring-blue-500" />
+                                <span className="text-sm text-slate-800 dark:text-slate-200">Standard (Courses & Allocations)</span>
+                            </label>
+                            <label className="flex items-center space-x-2">
+                                <input type="radio" name="datasource" value="sheet" checked={dataSource === 'sheet'} onChange={(e) => setDataSource(e.target.value)} className="text-blue-600 focus:ring-blue-500" />
+                                <span className="text-sm text-slate-800 dark:text-slate-200">Sheet Input (Faculty Requirements)</span>
+                            </label>
+                        </div>
+                    </div>
+
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
                         <div>
                             <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 transition-colors">Start Date</label>
@@ -598,17 +778,28 @@ export default function AdminScheduleGenerator() {
                     </div>
 
                     <div className="border-t border-slate-200 dark:border-white/10 pt-8 mb-8 transition-colors">
-                        <div className="flex justify-between items-center mb-6">
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-3">
                             <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-200 flex items-center transition-colors">
                                 <Clock className="w-5 h-5 mr-2 text-slate-500" />
                                 Daily Time Slots
                             </h3>
-                            <button 
-                                onClick={handleAddSlot}
-                                className="flex items-center text-sm font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 px-3 py-1.5 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
-                            >
-                                <Plus className="w-4 h-4 mr-1" /> Add Slot
-                            </button>
+                            <div className="flex items-center space-x-2">
+                                <button 
+                                    onClick={() => {
+                                        const newId = Date.now().toString();
+                                        setSlots([...slots, { id: newId, name: `Full Day`, startTime: '09:00', endTime: '17:00' }]);
+                                    }}
+                                    className="flex items-center text-sm font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 px-3 py-1.5 rounded-lg hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-colors"
+                                >
+                                    <Plus className="w-4 h-4 mr-1" /> Add Full Day Slot
+                                </button>
+                                <button 
+                                    onClick={handleAddSlot}
+                                    className="flex items-center text-sm font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 px-3 py-1.5 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
+                                >
+                                    <Plus className="w-4 h-4 mr-1" /> Add Slot
+                                </button>
+                            </div>
                         </div>
 
                         <div className="space-y-4">
@@ -668,6 +859,7 @@ export default function AdminScheduleGenerator() {
                 </div>
             )}
 
+            {}
             {step === 2 && (
                 <div className="space-y-6 animate-in fade-in">
                     {clashes.length > 0 && (
@@ -819,6 +1011,7 @@ export default function AdminScheduleGenerator() {
                 </div>
             )}
 
+            {}
             {step === 3 && (
                 <div className="bg-white dark:bg-[#111111] p-8 md:p-12 rounded-2xl border border-slate-200 dark:border-white/10 shadow-sm text-center animate-in zoom-in-95 duration-500 transition-colors max-w-[800px] mx-auto mt-10">
                     <div className="w-20 h-20 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner transition-colors">

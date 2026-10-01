@@ -28,7 +28,6 @@ import AdminTeachers from './components/AdminTeachers';
 import AdminStudents from './components/AdminStudents';
 import AdminCourses from './components/AdminCourses';
 import AdminScheduleGenerator from './components/AdminScheduleGenerator';
-// Fixed: Corrected the import path to point to the components folder
 import FacultyExamRequirements from './components/FacultyExamRequirements';
 
 function SidebarImages({ role }) {
@@ -269,6 +268,7 @@ export default function App() {
       case 'admin':
         return [
           { id: 'dashboard', label: 'Dashboard', icon: Layout },
+          { id: 'requirements', label: 'Exam Requirements', icon: FileSpreadsheet },
           { id: 'generator', label: 'Exam Engine', icon: Wand2 },
           { id: 'timetables', label: 'Timetables', icon: CalendarDays },
           { id: 'teachers', label: 'Teachers', icon: Briefcase },
@@ -298,7 +298,9 @@ export default function App() {
     if (userRole === 'admin' && activeTab === 'timetables') return <AdminTimetableViewer />;
     if (userRole === 'admin' && activeTab === 'courses') return <AdminCourses />;
     if (userRole === 'admin' && activeTab === 'generator') return <AdminScheduleGenerator />;
-    if (userRole === 'faculty' && activeTab === 'requirements') return <FacultyExamRequirements user={userData} />;
+    if (userRole === 'admin' && activeTab === 'requirements') return <FacultyExamRequirements user={userData} isAdmin={true} />;
+    
+    if (userRole === 'faculty' && activeTab === 'requirements') return <FacultyExamRequirements user={userData} isAdmin={false} />;
 
     if (activeTab === 'dashboard') {
       if (userRole === 'admin') return <AdminDashboard onNavigate={setActiveTab} />;
