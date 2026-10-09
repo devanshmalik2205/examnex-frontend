@@ -2,9 +2,38 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
     Plus, Edit2, Trash2, BookOpen, X, Loader2, Search, 
     FileSpreadsheet, UploadCloud, AlertTriangle, CheckCircle, Users, Download, ChevronDown,
-    GitMerge, Sparkles, Filter, Check, ArrowRight, ShieldCheck, Layers, RefreshCw
+    GitMerge, Sparkles, Filter, Check, ShieldCheck, RefreshCw, BookMarked, GraduationCap, Award
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+
+// Defined exact roles requested
+const TEACHER_ROLES = [
+  "Assistant Professor - I",
+  "Assistant Professor - II",
+  "Assistant Professor - III",
+  "Assistant Professor",
+  "Associate Professor",
+  "Professor",
+  "Professor of Practice",
+  "Adjunct Industry Professor",
+  "Faculty Associate",
+  "Lab Assistant",
+  "PhD Scholar"
+];
+
+// Aesthetic color mappings for roles
+const getRoleBadgeStyle = (role) => {
+  const normalizedRole = role?.toLowerCase() || '';
+  if (normalizedRole.includes('assistant professor -')) return 'bg-sky-100 text-sky-700 border-sky-200 dark:bg-sky-500/10 dark:text-sky-400 dark:border-sky-500/20';
+  if (normalizedRole === 'assistant professor') return 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-500/10 dark:text-blue-400 dark:border-blue-500/20';
+  if (normalizedRole === 'associate professor') return 'bg-indigo-100 text-indigo-700 border-indigo-200 dark:bg-indigo-500/10 dark:text-indigo-400 dark:border-indigo-500/20';
+  if (normalizedRole === 'professor') return 'bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-500/10 dark:text-purple-400 dark:border-purple-500/20';
+  if (normalizedRole.includes('practice') || normalizedRole.includes('adjunct')) return 'bg-fuchsia-100 text-fuchsia-700 border-fuchsia-200 dark:bg-fuchsia-500/10 dark:text-fuchsia-400 dark:border-fuchsia-500/20';
+  if (normalizedRole.includes('associate')) return 'bg-teal-100 text-teal-700 border-teal-200 dark:bg-teal-500/10 dark:text-teal-400 dark:border-teal-500/20';
+  if (normalizedRole.includes('lab')) return 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20';
+  if (normalizedRole.includes('phd')) return 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/20';
+  return 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-white/10 dark:text-slate-300 dark:border-white/20';
+};
 
 export default function AdminTeachers() {
   const [teachers, setTeachers] = useState([]);
@@ -17,7 +46,7 @@ export default function AdminTeachers() {
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   
   // Forms state
-  const [currentTeacher, setCurrentTeacher] = useState({ full_name: '', email: '', teacher_type: 'Assistant Prof.' });
+  const [currentTeacher, setCurrentTeacher] = useState({ full_name: '', email: '', teacher_type: 'Assistant Professor' });
   const [selectedTeacherId, setSelectedTeacherId] = useState(null);
   
   // Allocation state
@@ -54,7 +83,7 @@ export default function AdminTeachers() {
     fetchAllocationOptions();
   }, []);
 
-    const fetchTeachers = async () => {
+  const fetchTeachers = async () => {
     try {
       setLoading(true);
       const res = await fetch(`${getApiBase()}/admin/teachers`);
@@ -246,7 +275,7 @@ export default function AdminTeachers() {
       .trim();
   };
 
-  // Normalize email for duplicate detection (removes edge dots like 'tanvi.jain.@bmu.edu.in')
+  // Normalize email for duplicate detection
   const normalizeEmail = (email) => {
     if (!email) return '';
     const clean = email.toLowerCase().trim();
@@ -321,10 +350,6 @@ export default function AdminTeachers() {
         if (compIndices.length > 1) {
           const groupTeachers = compIndices.map(idx => teachers[idx]);
 
-          // Determine recommended primary:
-          // 1. Most allocations
-          // 2. Clean valid email (no trailing dots before @)
-          // 3. Lowest ID (established record)
           const sortedCandidates = [...groupTeachers].sort((a, b) => {
             const allocA = a.allocations?.length || 0;
             const allocB = b.allocations?.length || 0;
@@ -354,7 +379,6 @@ export default function AdminTeachers() {
     return groups;
   }, [teachers]);
 
-  // Quick lookup map for teacher duplicate membership
   const teacherDuplicateMap = useMemo(() => {
     const map = new Map();
     duplicateGroups.forEach((group, groupIdx) => {
@@ -373,7 +397,6 @@ export default function AdminTeachers() {
     return map;
   }, [duplicateGroups, selectedPrimaries]);
 
-  // Pick cleanest email and most descriptive role when merging
   const getPreferredProfileForGroup = (primaryTeacher, duplicateTeachers) => {
     const allMembers = [primaryTeacher, ...duplicateTeachers];
     let bestEmail = primaryTeacher.email;
@@ -391,13 +414,11 @@ export default function AdminTeachers() {
     return {
       full_name: primaryTeacher.full_name,
       email: bestEmail || primaryTeacher.email,
-      teacher_type: bestRole || primaryTeacher.teacher_type || 'Assistant Prof.'
+      teacher_type: bestRole || primaryTeacher.teacher_type || 'Assistant Professor'
     };
   };
 
-  // Safe merge core: combines allocations and deletes duplicate records
   const mergeDuplicateGroup = async (primaryId, duplicateIds, preferredProfile) => {
-    // 1. Fetch current allocations for primary teacher
     let primaryAllocs = [];
     try {
       const res = await fetch(`${getApiBase()}/admin/teachers/${primaryId}/allocations`);
@@ -409,7 +430,6 @@ export default function AdminTeachers() {
       console.error(`Failed to fetch allocations for primary ${primaryId}`, e);
     }
 
-    // 2. Fetch allocations for all duplicate teachers
     const duplicateAllocs = [];
     for (const dupId of duplicateIds) {
       try {
@@ -423,7 +443,6 @@ export default function AdminTeachers() {
       }
     }
 
-    // 3. Deduplicate allocations by course_id + timetable_id
     const uniqueMap = new Map();
     [...primaryAllocs, ...duplicateAllocs].forEach(a => {
       if (a.course_id && a.timetable_id) {
@@ -436,18 +455,14 @@ export default function AdminTeachers() {
 
     const mergedAllocations = Array.from(uniqueMap.values());
 
-    // 4. Save combined allocations to primary teacher
     const saveRes = await fetch(`${getApiBase()}/admin/teachers/${primaryId}/allocations`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ allocations: mergedAllocations })
     });
 
-    if (!saveRes.ok) {
-      throw new Error(`Failed to update allocations for primary teacher ID: ${primaryId}`);
-    }
+    if (!saveRes.ok) throw new Error(`Failed to update allocations for primary teacher ID: ${primaryId}`);
 
-    // 5. Update primary profile if cleaner email or role exists
     if (preferredProfile) {
       try {
         await fetch(`${getApiBase()}/admin/teachers/${primaryId}`, {
@@ -460,14 +475,9 @@ export default function AdminTeachers() {
       }
     }
 
-    // 6. Delete duplicate teacher records
     for (const dupId of duplicateIds) {
-      const delRes = await fetch(`${getApiBase()}/admin/teachers/${dupId}`, {
-        method: 'DELETE'
-      });
-      if (!delRes.ok) {
-        console.warn(`Could not delete duplicate teacher ${dupId}`);
-      }
+      const delRes = await fetch(`${getApiBase()}/admin/teachers/${dupId}`, { method: 'DELETE' });
+      if (!delRes.ok) console.warn(`Could not delete duplicate teacher ${dupId}`);
     }
   };
 
@@ -584,9 +594,9 @@ export default function AdminTeachers() {
   }, [teachers, searchTerm, filterDuplicatesOnly, sortByDuplicates, teacherDuplicateMap]);
 
 
-  // Group allocations for visually pleasing unified UI
+  // Snappy & Animative Grouped Allocations UI for the Main Table
   const renderAllocations = (allocations) => {
-    if (!allocations || allocations.length === 0) return <span className="text-slate-400 text-xs italic">No allocations yet</span>;
+    if (!allocations || allocations.length === 0) return <span className="text-slate-400 dark:text-slate-500 text-sm italic">No subjects assigned</span>;
     
     const grouped = {};
     allocations.forEach(a => {
@@ -596,16 +606,21 @@ export default function AdminTeachers() {
     });
 
     return (
-        <div className="flex flex-col gap-2 max-h-32 overflow-y-auto custom-scrollbar pr-2 w-full max-w-[400px]">
+        <div className="flex flex-col gap-2.5 max-h-40 overflow-y-auto custom-scrollbar pr-2 w-full min-w-[280px]">
             {Object.entries(grouped).map(([title, sections], i) => (
-                <div key={i} className="text-xs bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/5 rounded-lg p-2">
-                    <span className="font-semibold text-slate-700 dark:text-slate-200 block mb-1">{title}</span>
-                    <div className="flex flex-wrap gap-1.5">
-                        {Array.from(sections).map((sec, j) => (
-                            <span key={j} className="px-1.5 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800/50 rounded-md text-[10px] font-medium shadow-sm">
-                                {sec}
-                            </span>
-                        ))}
+                <div key={i} className="group relative bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl p-3 hover:border-blue-300 dark:hover:border-blue-500/50 hover:shadow-sm transition-all duration-200">
+                    <div className="flex items-start gap-2.5">
+                        <BookMarked className="w-4 h-4 text-blue-500 mt-0.5 shrink-0 transition-transform group-hover:scale-110" />
+                        <div className="flex-1">
+                            <span className="font-semibold text-slate-800 dark:text-slate-200 text-sm leading-tight block mb-2">{title}</span>
+                            <div className="flex flex-wrap gap-1.5">
+                                {Array.from(sections).map((sec, j) => (
+                                    <span key={j} className="px-2 py-0.5 bg-slate-100 dark:bg-black/40 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-white/10 rounded-md text-[10px] font-medium shadow-sm transition-colors group-hover:bg-blue-50 dark:group-hover:bg-blue-900/30 group-hover:text-blue-700 dark:group-hover:text-blue-300 group-hover:border-blue-200 dark:group-hover:border-blue-800/50">
+                                        {sec}
+                                    </span>
+                                ))}
+                            </div>
+                        </div>
                     </div>
                 </div>
             ))}
@@ -649,8 +664,11 @@ export default function AdminTeachers() {
     <div className="p-4 sm:p-6 w-full max-w-7xl mx-auto space-y-6">
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Teachers Management</h1>
-          <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">Manage faculty, update profiles, and view allocations.</p>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <Users className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+            Teachers Management
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">Manage faculty, update profiles, and coordinate subject allocations.</p>
         </div>
         
         <div className="flex flex-col sm:flex-row w-full lg:w-auto items-center gap-3">
@@ -659,7 +677,7 @@ export default function AdminTeachers() {
           {duplicateGroups.length > 0 ? (
             <button 
               onClick={() => openDuplicateResolver(null)}
-              className="w-full sm:w-auto flex items-center justify-center px-4 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-sm border bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 dark:hover:bg-amber-900/50 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-700/60"
+              className="w-full sm:w-auto flex items-center justify-center px-4 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-sm border bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 dark:hover:bg-amber-900/50 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-700/60 active:scale-95"
               title="Review and resolve duplicate teachers"
             >
               <GitMerge className="w-4 h-4 mr-2 text-amber-600 dark:text-amber-400" />
@@ -682,11 +700,11 @@ export default function AdminTeachers() {
           >
             <button 
               onClick={() => setShowDownload(!showDownload)}
-              className="w-full sm:w-auto flex items-center justify-center px-4 py-2.5 rounded-xl text-sm font-medium transition-all shadow-sm border bg-white dark:bg-[#1a1a1a] border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5"
+              className="w-full sm:w-auto flex items-center justify-center px-4 py-2.5 rounded-xl text-sm font-medium transition-all shadow-sm border bg-white dark:bg-[#1a1a1a] border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 active:scale-95"
             >
               <Download className="w-4 h-4 mr-2" />
               Export
-              <ChevronDown className={`w-4 h-4 ml-2 transition-transform ${showDownload ? 'rotate-180' : ''}`} />
+              <ChevronDown className={`w-4 h-4 ml-2 transition-transform duration-200 ${showDownload ? 'rotate-180' : ''}`} />
             </button>
 
             {showDownload && (
@@ -702,39 +720,38 @@ export default function AdminTeachers() {
 
           <button 
             onClick={() => setIsUploadModalOpen(true)}
-            className="w-full sm:w-auto flex-1 sm:flex-none bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors flex items-center justify-center shadow-sm"
+            className="w-full sm:w-auto flex-1 sm:flex-none bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center justify-center shadow-sm active:scale-95"
           >
             <FileSpreadsheet className="w-4 h-4 mr-2" /> Bulk Upload
           </button>
           <button 
-            onClick={() => { setCurrentTeacher({ full_name: '', email: '', teacher_type: 'Assistant Prof.' }); setTeacherModalOpen(true); }}
-            className="w-full sm:w-auto flex-1 sm:flex-none flex items-center justify-center px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold transition-colors shadow-sm"
+            onClick={() => { setCurrentTeacher({ full_name: '', email: '', teacher_type: 'Assistant Professor' }); setTeacherModalOpen(true); }}
+            className="w-full sm:w-auto flex-1 sm:flex-none flex items-center justify-center px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold transition-all shadow-sm active:scale-95"
           >
             <Plus className="w-4 h-4 mr-2" /> Add Teacher
           </button>
         </div>
       </div>
 
-      {/* Search and Duplicate Filter Controls */}
+      {/* Search and Filter Controls */}
       <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
-        <div className="flex items-center flex-1 bg-white dark:bg-[#111111] p-2 rounded-xl border border-slate-200 dark:border-white/5 shadow-sm">
+        <div className="flex items-center flex-1 bg-white dark:bg-[#111111] p-2 rounded-xl border border-slate-200 dark:border-white/5 shadow-sm focus-within:ring-2 focus-within:ring-blue-500/20 transition-all">
           <Search className="w-5 h-5 text-slate-400 ml-2" />
           <input 
             type="text" 
             placeholder="Search teachers by name or email..." 
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="flex-1 bg-transparent border-none outline-none px-4 py-2 text-slate-700 dark:text-white"
+            className="flex-1 bg-transparent border-none outline-none px-4 py-2 text-slate-700 dark:text-white placeholder-slate-400"
           />
           {searchTerm && (
-            <button onClick={() => setSearchTerm('')} className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 mr-2">
+            <button onClick={() => setSearchTerm('')} className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 mr-2 transition-colors">
               <X className="w-4 h-4" />
             </button>
           )}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {/* View filter pills */}
           <div className="bg-slate-100 dark:bg-white/5 p-1 rounded-xl flex items-center border border-slate-200 dark:border-white/5 text-xs font-medium">
             <button
               onClick={() => setFilterDuplicatesOnly(false)}
@@ -743,10 +760,7 @@ export default function AdminTeachers() {
               All ({teachers.length})
             </button>
             <button
-              onClick={() => {
-                setFilterDuplicatesOnly(true);
-                setSortByDuplicates(true);
-              }}
+              onClick={() => { setFilterDuplicatesOnly(true); setSortByDuplicates(true); }}
               className={`px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 ${filterDuplicatesOnly ? 'bg-amber-500 text-white shadow-sm font-semibold' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
             >
               <GitMerge className="w-3.5 h-3.5" />
@@ -759,10 +773,9 @@ export default function AdminTeachers() {
             </button>
           </div>
 
-          {/* Duplication Sorting toggle button */}
           <button
             onClick={() => setSortByDuplicates(!sortByDuplicates)}
-            className={`px-3.5 py-2 rounded-xl text-xs font-medium border transition-colors flex items-center gap-1.5 shadow-sm ${sortByDuplicates ? 'bg-indigo-50 dark:bg-indigo-900/30 border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 font-semibold' : 'bg-white dark:bg-[#111111] border-slate-200 dark:border-white/5 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-white/5'}`}
+            className={`px-3.5 py-2 rounded-xl text-xs font-medium border transition-colors flex items-center gap-1.5 shadow-sm active:scale-95 ${sortByDuplicates ? 'bg-indigo-50 dark:bg-indigo-900/30 border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 font-semibold' : 'bg-white dark:bg-[#111111] border-slate-200 dark:border-white/5 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-white/5'}`}
             title="Cluster duplicate teachers together in table view"
           >
             <Filter className="w-3.5 h-3.5" />
@@ -772,70 +785,57 @@ export default function AdminTeachers() {
         </div>
       </div>
 
-      {/* Duplicates View Alert Banner */}
-      {filterDuplicatesOnly && (
-        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 rounded-xl p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-sm">
-          <div className="flex items-center gap-2.5 text-amber-900 dark:text-amber-200">
-            <GitMerge className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
-            <span>Showing <strong>{filteredTeachers.length} potential duplicate teachers</strong> across <strong>{duplicateGroups.length} duplicate groups</strong>.</span>
-          </div>
-          <div className="flex items-center gap-2 w-full sm:w-auto">
-            <button 
-              onClick={() => openDuplicateResolver(null)}
-              className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-semibold flex items-center shadow-sm transition-colors"
-            >
-              <Sparkles className="w-3.5 h-3.5 mr-1.5" /> Open Duplicate Resolver
-            </button>
-            <button 
-              onClick={() => setFilterDuplicatesOnly(false)}
-              className="px-3 py-1.5 text-xs text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/40 rounded-lg transition-colors"
-            >
-              View All
-            </button>
-          </div>
-        </div>
-      )}
-
-      <div className="bg-white dark:bg-[#111111] rounded-xl border border-slate-200 dark:border-white/5 shadow-sm overflow-hidden">
+      <div className="bg-white dark:bg-[#111111] rounded-2xl border border-slate-200 dark:border-white/5 shadow-sm overflow-hidden animate-in fade-in duration-300">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-white/5 text-sm font-medium text-slate-500 dark:text-slate-400">
-                <th className="p-4">Name</th>
-                <th className="p-4">Email</th>
-                <th className="p-4">Role/Type</th>
-                <th className="p-4">Allocated Subjects & Classes</th>
-                <th className="p-4 text-right">Actions</th>
+              <tr className="bg-slate-50/80 dark:bg-slate-900/50 border-b border-slate-200 dark:border-white/5 text-sm font-semibold text-slate-600 dark:text-slate-400">
+                <th className="p-4 pl-6 whitespace-nowrap">Faculty Member</th>
+                <th className="p-4 whitespace-nowrap">Email Address</th>
+                <th className="p-4 whitespace-nowrap">Designation / Role</th>
+                <th className="p-4 min-w-[300px]">Allocated Subjects & Classes</th>
+                <th className="p-4 pr-6 text-right whitespace-nowrap">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-200 dark:divide-white/5">
+            <tbody className="divide-y divide-slate-100 dark:divide-white/5">
               {loading ? (
                 <tr>
-                  <td colSpan="5" className="p-8 text-center text-slate-500"><Loader2 className="w-6 h-6 animate-spin mx-auto" /></td>
+                  <td colSpan="5" className="p-12 text-center text-slate-500">
+                    <Loader2 className="w-8 h-8 animate-spin mx-auto text-blue-500 mb-3" />
+                    <p>Loading Faculty...</p>
+                  </td>
                 </tr>
               ) : filteredTeachers.length === 0 ? (
                 <tr>
-                  <td colSpan="5" className="p-8 text-center text-slate-500">No teachers found.</td>
+                  <td colSpan="5" className="p-12 text-center text-slate-500">
+                    <div className="mx-auto w-16 h-16 bg-slate-100 dark:bg-white/5 rounded-full flex items-center justify-center mb-4">
+                      <Search className="w-8 h-8 text-slate-400" />
+                    </div>
+                    <p className="text-lg font-medium text-slate-700 dark:text-slate-300">No teachers found.</p>
+                    <p className="text-sm mt-1">Try adjusting your search or add a new faculty member.</p>
+                  </td>
                 </tr>
               ) : (
                 filteredTeachers.map(teacher => {
                   const dupInfo = teacherDuplicateMap.get(teacher.id);
+                  const roleStyle = getRoleBadgeStyle(teacher.teacher_type);
+                  
                   return (
                     <tr 
                       key={teacher.id} 
-                      className={`hover:bg-slate-50 dark:hover:bg-slate-900/30 transition-colors ${dupInfo ? 'bg-amber-500/[0.04] dark:bg-amber-500/[0.07] border-l-4 border-l-amber-500' : ''}`}
+                      className={`hover:bg-slate-50/80 dark:hover:bg-slate-900/30 transition-colors group ${dupInfo ? 'bg-amber-500/[0.04] dark:bg-amber-500/[0.07] border-l-4 border-l-amber-500' : ''}`}
                     >
-                      <td className="p-4 font-medium text-slate-900 dark:text-white">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm shrink-0 ${dupInfo ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' : 'bg-blue-100 dark:bg-blue-900/30 text-blue-600'}`}>
+                      <td className="p-4 pl-6 font-medium text-slate-900 dark:text-white align-top pt-5">
+                        <div className="flex items-start gap-3">
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0 shadow-sm ${dupInfo ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' : 'bg-gradient-to-br from-blue-100 to-indigo-100 dark:from-blue-900/40 dark:to-indigo-900/40 text-blue-700 dark:text-blue-300 border border-blue-200/50 dark:border-blue-700/30'}`}>
                             {teacher.full_name?.charAt(0) || '?'}
                           </div>
-                          <div className="flex flex-col gap-1 overflow-hidden">
-                            <span className="truncate max-w-[170px] font-semibold">{teacher.full_name}</span>
+                          <div className="flex flex-col gap-1 overflow-hidden pt-0.5">
+                            <span className="truncate max-w-[170px] font-bold text-[15px]">{teacher.full_name}</span>
                             {dupInfo && (
                               <button 
                                 onClick={(e) => { e.stopPropagation(); openDuplicateResolver(dupInfo.groupIndex); }}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300 border border-amber-200 dark:border-amber-700/50 hover:bg-amber-200 dark:hover:bg-amber-800/60 transition-colors w-fit text-left"
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300 border border-amber-200 dark:border-amber-700/50 hover:bg-amber-200 dark:hover:bg-amber-800/60 transition-colors w-fit text-left mt-1"
                                 title="Click to view and resolve this duplicate group"
                               >
                                 <GitMerge className="w-2.5 h-2.5 shrink-0" />
@@ -850,24 +850,25 @@ export default function AdminTeachers() {
                           </div>
                         </div>
                       </td>
-                      <td className="p-4 text-slate-600 dark:text-slate-300">
-                        <span className={dupInfo && !dupInfo.isPrimary && teacher.email?.includes('.@') ? 'text-red-500 line-through' : ''}>
-                          {teacher.email}
+                      <td className="p-4 align-top pt-6 text-slate-600 dark:text-slate-300">
+                        <span className={`text-sm ${dupInfo && !dupInfo.isPrimary && teacher.email?.includes('.@') ? 'text-red-500 line-through' : ''}`}>
+                          {teacher.email || 'N/A'}
                         </span>
                       </td>
-                      <td className="p-4">
-                        <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 capitalize">
+                      <td className="p-4 align-top pt-5">
+                        <span className={`px-3 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 border ${roleStyle}`}>
+                          <Award className="w-3.5 h-3.5" />
                           {teacher.teacher_type}
                         </span>
                       </td>
-                      <td className="p-4 align-top">
+                      <td className="p-4 align-top py-4">
                           {renderAllocations(teacher.allocations)}
                       </td>
-                      <td className="p-4 text-right space-x-1.5 flex justify-end items-start h-full pt-6">
+                      <td className="p-4 pr-6 text-right space-x-1.5 flex justify-end items-start h-full pt-5 opacity-80 group-hover:opacity-100 transition-opacity">
                         {dupInfo && (
                           <button 
                             onClick={() => openDuplicateResolver(dupInfo.groupIndex)}
-                            className="p-2 text-amber-600 hover:bg-amber-100 dark:text-amber-400 dark:hover:bg-amber-900/30 rounded-lg transition-colors"
+                            className="p-2 text-amber-600 hover:bg-amber-100 dark:text-amber-400 dark:hover:bg-amber-900/30 rounded-xl transition-all hover:scale-105 active:scale-95"
                             title="Resolve & Merge this Duplicate Group"
                           >
                             <GitMerge className="w-4 h-4" />
@@ -875,21 +876,21 @@ export default function AdminTeachers() {
                         )}
                         <button 
                           onClick={() => openAllocationModal(teacher)}
-                          className="p-2 text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-900/30 rounded-lg transition-colors"
-                          title="Allocate Subjects"
+                          className="p-2 text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-900/30 rounded-xl transition-all hover:scale-105 active:scale-95"
+                          title="Edit Allocations & Subjects"
                         >
                           <BookOpen className="w-4 h-4" />
                         </button>
                         <button 
                           onClick={() => { setCurrentTeacher(teacher); setTeacherModalOpen(true); }}
-                          className="p-2 text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
+                          className="p-2 text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30 rounded-xl transition-all hover:scale-105 active:scale-95"
                           title="Edit Profile"
                         >
                           <Edit2 className="w-4 h-4" />
                         </button>
                         <button 
                           onClick={() => handleDeleteTeacher(teacher.id)}
-                          className="p-2 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/30 rounded-lg transition-colors"
+                          className="p-2 text-red-500 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/30 rounded-xl transition-all hover:scale-105 active:scale-95"
                           title="Delete Teacher"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -904,99 +905,153 @@ export default function AdminTeachers() {
         </div>
       </div>
 
+      {/* Teacher Add/Edit Modal */}
       {isTeacherModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl w-full max-w-md shadow-2xl overflow-hidden border border-slate-200 dark:border-white/10">
-            <div className="flex justify-between items-center p-5 border-b border-slate-200 dark:border-white/5">
-              <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
-                {currentTeacher.id ? 'Edit Teacher' : 'Add New Teacher'}
-              </h3>
-              <button onClick={() => setTeacherModalOpen(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-white"><X className="w-5 h-5"/></button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl w-full max-w-md shadow-2xl overflow-hidden border border-slate-200 dark:border-white/10 animate-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center p-5 border-b border-slate-100 dark:border-white/5 bg-slate-50/50 dark:bg-white/[0.02]">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-lg">
+                  <GraduationCap className="w-5 h-5" />
+                </div>
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+                  {currentTeacher.id ? 'Edit Faculty Profile' : 'Add Faculty Member'}
+                </h3>
+              </div>
+              <button onClick={() => setTeacherModalOpen(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-white transition-colors p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-white/10"><X className="w-5 h-5"/></button>
             </div>
-            <form onSubmit={handleSaveTeacher} className="p-5 space-y-4">
+            
+            <form onSubmit={handleSaveTeacher} className="p-6 space-y-5">
               <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Full Name</label>
+                <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1.5">Full Name</label>
                 <input 
                   required type="text" value={currentTeacher.full_name || ''} 
                   onChange={e => setCurrentTeacher({...currentTeacher, full_name: e.target.value})}
-                  className="w-full px-4 py-2.5 bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-white/10 rounded-lg focus:ring-2 focus:ring-blue-500 dark:text-white outline-none"
+                  placeholder="e.g. Dr. John Doe"
+                  className="w-full px-4 py-3 bg-white dark:bg-black/50 border border-slate-300 dark:border-white/10 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:text-white outline-none transition-all shadow-sm"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Email</label>
+                <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1.5">Email Address</label>
                 <input 
                   type="email" value={currentTeacher.email || ''} 
                   onChange={e => setCurrentTeacher({...currentTeacher, email: e.target.value})}
-                  placeholder="Will be auto-generated if left blank"
-                  className="w-full px-4 py-2.5 bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-white/10 rounded-lg focus:ring-2 focus:ring-blue-500 dark:text-white outline-none"
+                  placeholder="Leave blank to auto-generate"
+                  className="w-full px-4 py-3 bg-white dark:bg-black/50 border border-slate-300 dark:border-white/10 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:text-white outline-none transition-all shadow-sm"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Role / Type</label>
-                <select 
-                  value={currentTeacher.teacher_type || 'Assistant Prof.'} 
-                  onChange={e => setCurrentTeacher({...currentTeacher, teacher_type: e.target.value})}
-                  className="w-full px-4 py-2.5 bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-white/10 rounded-lg focus:ring-2 focus:ring-blue-500 dark:text-white outline-none"
-                >
-                  <option value="Assistant Prof.">Assistant Prof.</option>
-                  <option value="Associate Prof.">Associate Prof.</option>
-                  <option value="Prof.">Prof.</option>
-                  <option value="Lab Prof.">Lab Prof.</option>
-                  <option value="Researchers">Researchers</option>
-                  <option value="Faculty">Faculty</option>
-                  <option value="PhD Scholar">PhD Scholar</option>
-                </select>
+                <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1.5">Designation / Role</label>
+                <div className="relative">
+                  <select 
+                    value={currentTeacher.teacher_type || 'Assistant Professor'} 
+                    onChange={e => setCurrentTeacher({...currentTeacher, teacher_type: e.target.value})}
+                    className="w-full px-4 py-3 bg-white dark:bg-black/50 border border-slate-300 dark:border-white/10 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:text-white outline-none transition-all shadow-sm appearance-none pr-10"
+                  >
+                    {TEACHER_ROLES.map(role => (
+                        <option key={role} value={role}>{role}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 pointer-events-none" />
+                </div>
               </div>
-              <div className="pt-4 flex justify-end gap-3">
-                <button type="button" onClick={() => setTeacherModalOpen(false)} className="px-4 py-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg">Cancel</button>
-                <button type="submit" className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-sm">Save Teacher</button>
+              
+              <div className="pt-5 border-t border-slate-100 dark:border-white/5 flex justify-end gap-3">
+                <button type="button" onClick={() => setTeacherModalOpen(false)} className="px-5 py-2.5 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5 rounded-xl transition-colors">Cancel</button>
+                <button type="submit" className="px-6 py-2.5 text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-sm transition-all active:scale-95 flex items-center">
+                  <CheckCircle className="w-4 h-4 mr-2" /> Save Profile
+                </button>
               </div>
             </form>
           </div>
         </div>
       )}
 
+      {/* Course Allocations Edit Modal - SNAPPY REDESIGN */}
       {isAllocationModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden border border-slate-200 dark:border-white/10 flex flex-col max-h-[90vh]">
-            <div className="flex justify-between items-center p-5 border-b border-slate-200 dark:border-white/5">
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Subject Allocations</h3>
-                <p className="text-sm text-slate-500 mt-1">Assigning courses for <span className="font-medium text-slate-800 dark:text-slate-200">{currentTeacher.full_name}</span></p>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl w-full max-w-3xl shadow-2xl overflow-hidden border border-slate-200 dark:border-white/10 flex flex-col max-h-[90vh] animate-in slide-in-from-bottom-8 duration-300">
+            
+            {/* Header */}
+            <div className="flex justify-between items-center p-6 border-b border-slate-100 dark:border-white/5 bg-slate-50/50 dark:bg-white/[0.02]">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-xl flex items-center justify-center shadow-sm">
+                  <BookOpen className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-slate-900 dark:text-white">Subject Allocations</h3>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <p className="text-sm text-slate-500 font-medium">Editing load for <span className="text-indigo-600 dark:text-indigo-400">{currentTeacher.full_name}</span></p>
+                    <span className="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600"></span>
+                    <span className="text-xs font-bold px-2 py-0.5 bg-slate-200 dark:bg-white/10 text-slate-600 dark:text-slate-300 rounded-md">
+                      {currentAllocations.length} Class{currentAllocations.length !== 1 ? 'es' : ''} Assigned
+                    </span>
+                  </div>
+                </div>
               </div>
-              <button onClick={() => setAllocationModalOpen(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-white"><X className="w-5 h-5"/></button>
+              <button onClick={() => setAllocationModalOpen(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-white p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-white/10 transition-colors"><X className="w-6 h-6"/></button>
             </div>
             
-            <div className="p-5 overflow-y-auto flex-1 bg-slate-50/50 dark:bg-black/20 custom-scrollbar">
+            {/* List Body */}
+            <div className="p-6 overflow-y-auto flex-1 bg-slate-50/30 dark:bg-black/10 custom-scrollbar relative">
               {currentAllocations.length === 0 ? (
-                <div className="text-center py-10">
-                  <BookOpen className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-3" />
-                  <p className="text-slate-500 dark:text-slate-400">No subjects allocated to this teacher yet.</p>
+                <div className="h-full flex flex-col items-center justify-center text-center py-16 animate-in zoom-in-95 duration-300">
+                  <div className="w-20 h-20 bg-slate-100 dark:bg-white/5 rounded-full flex items-center justify-center mb-5">
+                    <BookMarked className="w-10 h-10 text-slate-300 dark:text-slate-600" />
+                  </div>
+                  <h4 className="text-lg font-bold text-slate-800 dark:text-slate-200">No Subjects Assigned</h4>
+                  <p className="text-slate-500 dark:text-slate-400 mt-2 max-w-sm">This faculty member does not have any classes allocated to them yet.</p>
                 </div>
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-4">
                   {currentAllocations.map((alloc, idx) => (
-                    <div key={idx} className="flex flex-col sm:flex-row gap-3 items-center p-3 bg-white dark:bg-[#111111] border border-slate-200 dark:border-white/5 rounded-xl shadow-sm">
-                      <select 
-                        value={alloc.course_id || ''} 
-                        onChange={(e) => updateAllocation(idx, 'course_id', e.target.value)}
-                        className="flex-1 w-full px-3 py-2 bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-white/10 rounded-lg text-sm dark:text-white outline-none"
+                    <div 
+                      key={idx} 
+                      className="group flex flex-col sm:flex-row gap-4 items-start sm:items-center p-4 bg-white dark:bg-[#111111] border border-slate-200 dark:border-white/10 rounded-2xl shadow-sm hover:shadow-md hover:border-indigo-300 dark:hover:border-indigo-500/40 transition-all duration-200 animate-in slide-in-from-bottom-2"
+                      style={{ animationDelay: `${idx * 50}ms`, animationFillMode: 'both' }}
+                    >
+                      <div className="hidden sm:flex w-10 h-10 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-500 rounded-xl items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
+                        <span className="text-sm font-bold">{idx + 1}</span>
+                      </div>
+                      
+                      <div className="flex-1 w-full flex flex-col gap-1.5 relative">
+                        <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Course / Subject</label>
+                        <div className="relative">
+                            <select 
+                            value={alloc.course_id || ''} 
+                            onChange={(e) => updateAllocation(idx, 'course_id', e.target.value)}
+                            className="w-full pl-3 pr-10 py-2.5 bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-white/10 rounded-xl text-sm font-semibold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none appearance-none hover:bg-slate-100 dark:hover:bg-white/5 transition-colors cursor-pointer"
+                            >
+                            {allocationOptions.courses.map(c => <option key={c.id} value={c.id}>{c.course_title} ({c.course_code})</option>)}
+                            </select>
+                            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                        </div>
+                      </div>
+                      
+                      <div className="hidden sm:block shrink-0 mt-6">
+                        <div className="w-6 border-b-2 border-dashed border-slate-300 dark:border-slate-600"></div>
+                      </div>
+                      
+                      <div className="flex-1 w-full flex flex-col gap-1.5 relative">
+                        <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Class / Timetable</label>
+                        <div className="relative">
+                            <select 
+                            value={alloc.timetable_id || ''} 
+                            onChange={(e) => updateAllocation(idx, 'timetable_id', e.target.value)}
+                            className="w-full pl-3 pr-10 py-2.5 bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-white/10 rounded-xl text-sm font-medium text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none appearance-none hover:bg-slate-100 dark:hover:bg-white/5 transition-colors cursor-pointer"
+                            >
+                            {allocationOptions.sections.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                            </select>
+                            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                        </div>
+                      </div>
+                      
+                      <button 
+                        onClick={() => removeAllocationRow(idx)} 
+                        className="mt-6 sm:mt-5 p-2.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl shrink-0 transition-colors self-end sm:self-auto"
+                        title="Remove this class"
                       >
-                        {allocationOptions.courses.map(c => <option key={c.id} value={c.id}>{c.course_title} ({c.course_code})</option>)}
-                      </select>
-                      
-                      <span className="text-slate-400 hidden sm:block">in</span>
-                      
-                      <select 
-                        value={alloc.timetable_id || ''} 
-                        onChange={(e) => updateAllocation(idx, 'timetable_id', e.target.value)}
-                        className="flex-1 w-full px-3 py-2 bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-white/10 rounded-lg text-sm dark:text-white outline-none"
-                      >
-                        {allocationOptions.sections.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                      </select>
-                      
-                      <button onClick={() => removeAllocationRow(idx)} className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg flex-shrink-0">
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="w-5 h-5" />
                       </button>
                     </div>
                   ))}
@@ -1005,36 +1060,46 @@ export default function AdminTeachers() {
               
               <button 
                 onClick={addAllocationRow}
-                className="mt-4 flex items-center justify-center w-full py-2.5 border-2 border-dashed border-slate-300 dark:border-white/20 text-slate-500 dark:text-slate-400 hover:border-blue-500 hover:text-blue-500 dark:hover:border-blue-500 dark:hover:text-blue-400 rounded-xl transition-colors"
+                className="mt-6 flex items-center justify-center w-full py-4 border-2 border-dashed border-indigo-200 dark:border-indigo-900/50 bg-indigo-50/50 dark:bg-indigo-900/10 text-indigo-600 dark:text-indigo-400 hover:border-indigo-400 hover:bg-indigo-100/50 dark:hover:border-indigo-500/50 dark:hover:bg-indigo-900/30 rounded-2xl font-bold transition-all active:scale-[0.99] group"
               >
-                <Plus className="w-4 h-4 mr-2" /> Add New Allocation
+                <div className="p-1 bg-indigo-200 dark:bg-indigo-800 rounded-full mr-3 group-hover:scale-110 transition-transform">
+                    <Plus className="w-4 h-4 text-indigo-700 dark:text-indigo-200" /> 
+                </div>
+                Add Another Class
               </button>
             </div>
 
-            <div className="p-5 border-t border-slate-200 dark:border-white/5 flex justify-end gap-3 bg-white dark:bg-[#1a1a1a]">
-              <button 
-                onClick={() => setAllocationModalOpen(false)} 
-                disabled={savingAllocations}
-                className="px-4 py-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button 
-                onClick={handleSaveAllocations} 
-                disabled={savingAllocations}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-sm flex items-center disabled:opacity-75"
-              >
-                {savingAllocations ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
-                Save Allocations
-              </button>
+            {/* Footer */}
+            <div className="p-6 border-t border-slate-100 dark:border-white/5 flex justify-between items-center bg-white dark:bg-[#1a1a1a]">
+              <div className="text-xs font-medium text-slate-500 flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-emerald-500" /> All changes require saving
+              </div>
+              <div className="flex gap-3">
+                <button 
+                    onClick={() => setAllocationModalOpen(false)} 
+                    disabled={savingAllocations}
+                    className="px-5 py-2.5 text-sm font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5 rounded-xl disabled:opacity-50 transition-colors"
+                >
+                    Discard
+                </button>
+                <button 
+                    onClick={handleSaveAllocations} 
+                    disabled={savingAllocations}
+                    className="px-6 py-2.5 text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-md hover:shadow-lg transition-all active:scale-95 flex items-center disabled:opacity-75 disabled:active:scale-100"
+                >
+                    {savingAllocations ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <BookOpen className="w-4 h-4 mr-2" />}
+                    Save Allocations
+                </button>
+              </div>
             </div>
           </div>
         </div>
       )}
 
+      {/* Upload/Import Modal (Remains largely the same, optimized classes) */}
       {isUploadModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm transition-opacity animate-in fade-in">
-          <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden border border-slate-200 dark:border-white/10 shadow-2xl flex flex-col">
+          <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden border border-slate-200 dark:border-white/10 shadow-2xl flex flex-col animate-in zoom-in-95 duration-200">
               <div className="flex justify-between items-center p-5 border-b border-slate-200 dark:border-white/5">
                   <div>
                       <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center">
@@ -1049,38 +1114,38 @@ export default function AdminTeachers() {
                   {!previewData ? (
                       <div className="h-full flex flex-col items-center justify-center space-y-4 py-8">
                           {uploadError && (
-                              <div className="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 p-3 rounded-lg flex items-center text-sm w-full max-w-md">
+                              <div className="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 p-3 rounded-xl flex items-center text-sm w-full max-w-md">
                                   <AlertTriangle className="w-4 h-4 mr-2 flex-shrink-0" /> {uploadError}
                               </div>
                           )}
-                          <label className={`w-full max-w-md aspect-video border-2 border-dashed rounded-2xl flex flex-col items-center justify-center cursor-pointer transition-colors ${isUploading ? 'border-emerald-400 bg-emerald-50 dark:bg-emerald-900/20' : 'border-slate-300 dark:border-white/20 hover:border-emerald-500 hover:bg-slate-50 dark:hover:bg-white/5'}`}>
+                          <label className={`w-full max-w-md aspect-video border-2 border-dashed rounded-2xl flex flex-col items-center justify-center cursor-pointer transition-all ${isUploading ? 'border-emerald-400 bg-emerald-50 dark:bg-emerald-900/20' : 'border-slate-300 dark:border-white/20 hover:border-emerald-500 hover:bg-slate-50 dark:hover:bg-white/5 active:scale-95'}`}>
                               <input type="file" accept=".xlsx, .xls, .csv" className="hidden" ref={fileInputRef} onChange={handleFileSelection} disabled={isUploading} />
                               {isUploading ? (
                                   <>
                                       <Loader2 className="w-10 h-10 animate-spin text-emerald-500 mb-4" />
-                                      <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400">Parsing Spreadsheet Data...</p>
+                                      <p className="text-sm font-bold text-emerald-700 dark:text-emerald-400">Parsing Spreadsheet...</p>
                                   </>
                               ) : (
                                   <>
-                                      <UploadCloud className="w-12 h-12 text-slate-400 dark:text-slate-500 mb-4" />
-                                      <p className="text-base font-semibold text-slate-700 dark:text-slate-300">Click or drag Excel file to upload</p>
-                                      <p className="text-xs text-slate-500 mt-2 text-center px-4">Standard Columns expected: Name/FacultyName, Email, Role/Type</p>
+                                      <UploadCloud className="w-12 h-12 text-slate-400 dark:text-slate-500 mb-4 transition-transform group-hover:scale-110" />
+                                      <p className="text-base font-bold text-slate-700 dark:text-slate-300">Click or Drag Excel file here</p>
+                                      <p className="text-xs text-slate-500 mt-2 text-center px-4 font-medium">Expected Columns: Name, Email, Role/Type</p>
                                   </>
                               )}
                           </label>
                       </div>
                   ) : (
-                      <div className="space-y-6">
+                      <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-300">
                           {previewData.overwrites?.total_updates > 0 && (
                               <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-xl p-4 flex items-start shadow-sm">
                                   <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 mr-3 mt-0.5 flex-shrink-0" />
                                   <div>
                                       <h4 className="text-sm font-bold text-amber-900 dark:text-amber-200">Existing Records Found</h4>
                                       <p className="text-sm text-amber-700 dark:text-amber-400 mt-1">
-                                        Found <strong>{previewData.overwrites.total_updates} existing teachers</strong> based on name or email. Their profiles will be updated seamlessly without losing existing class allocations.
+                                        Found <strong>{previewData.overwrites.total_updates} existing teachers</strong>. Their profiles will be updated seamlessly without losing existing class allocations.
                                         {previewData.overwrites.email_updates > 0 && (
-                                            <span className="block mt-1.5 text-amber-800 dark:text-amber-300">
-                                                Includes <strong>{previewData.overwrites.email_updates} email address updates</strong>.
+                                            <span className="block mt-1.5 text-amber-800 dark:text-amber-300 font-medium">
+                                                Includes {previewData.overwrites.email_updates} email address update(s).
                                             </span>
                                         )}
                                       </p>
@@ -1089,25 +1154,25 @@ export default function AdminTeachers() {
                           )}
 
                           <div className="bg-white dark:bg-[#111] border border-slate-200 dark:border-white/10 rounded-xl p-4 shadow-sm">
-                              <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center mb-3">
-                                  <Users className="w-4 h-4 mr-2 text-indigo-500" /> Parsed Faculty ({previewData.preview.teachers?.length || 0})
+                              <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center mb-4">
+                                  <Users className="w-4 h-4 mr-2 text-indigo-500" /> Parsed Faculty Preview ({previewData.preview.teachers?.length || 0})
                               </h4>
                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-72 overflow-y-auto custom-scrollbar pr-2">
                                   {(previewData.preview.teachers || []).map((t, i) => (
-                                      <div key={i} className={`text-sm p-3 rounded-lg border flex justify-between items-start ${t.is_update ? 'bg-amber-50/50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800/50' : 'bg-slate-50 dark:bg-white/5 border-slate-100 dark:border-white/5'}`}>
+                                      <div key={i} className={`text-sm p-3.5 rounded-xl border flex justify-between items-start ${t.is_update ? 'bg-amber-50/50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800/50' : 'bg-slate-50 dark:bg-white/5 border-slate-100 dark:border-white/5'}`}>
                                           <div className="overflow-hidden mr-2">
-                                              <p className="font-semibold text-slate-800 dark:text-slate-200 truncate">{t.full_name}</p>
-                                              <p className="text-xs text-slate-500 truncate">{t.email}</p>
-                                              <p className="text-[10px] font-bold uppercase text-slate-400 mt-1.5">{t.teacher_type}</p>
+                                              <p className="font-bold text-slate-800 dark:text-slate-200 truncate">{t.full_name}</p>
+                                              <p className="text-xs text-slate-500 truncate mt-0.5">{t.email}</p>
+                                              <p className="text-[10px] font-bold text-slate-500 mt-2 inline-flex border border-slate-200 dark:border-white/10 rounded px-1.5 py-0.5">{t.teacher_type}</p>
                                           </div>
                                           <div className="flex flex-col items-end gap-1 shrink-0 ml-4 text-right">
                                             {t.is_update ? (
                                                 <>
-                                                    <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/30 px-1.5 rounded uppercase tracking-wider">Update</span>
+                                                    <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/30 px-2 py-0.5 rounded uppercase tracking-wider">Update</span>
                                                     {t.update_details && t.update_details.length > 0 && (
-                                                        <div className="flex flex-col items-end mt-1">
+                                                        <div className="flex flex-col items-end mt-1.5">
                                                             {t.update_details.map((detail, dIdx) => (
-                                                                <span key={dIdx} className="text-[9.5px] font-medium text-amber-700 dark:text-amber-500 bg-amber-50 dark:bg-amber-900/10 px-1.5 py-0.5 rounded-sm mt-0.5 whitespace-nowrap border border-amber-100 dark:border-amber-800/30">
+                                                                <span key={dIdx} className="text-[9px] font-semibold text-amber-700 dark:text-amber-500 bg-amber-50 dark:bg-amber-900/10 px-1.5 py-0.5 rounded-sm mt-0.5 whitespace-nowrap border border-amber-100 dark:border-amber-800/30">
                                                                     {detail}
                                                                 </span>
                                                             ))}
@@ -1115,7 +1180,7 @@ export default function AdminTeachers() {
                                                     )}
                                                 </>
                                             ) : (
-                                                <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/30 px-1.5 rounded uppercase tracking-wider">New</span>
+                                                <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/30 px-2 py-0.5 rounded uppercase tracking-wider">New</span>
                                             )}
                                           </div>
                                       </div>
@@ -1129,7 +1194,7 @@ export default function AdminTeachers() {
               <div className="p-5 border-t border-slate-200 dark:border-white/5 bg-white dark:bg-[#1a1a1a] flex justify-end gap-3">
                   <button 
                       onClick={() => { setIsUploadModalOpen(false); setPreviewData(null); }} 
-                      className="px-5 py-2.5 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5 rounded-xl font-medium transition-colors"
+                      className="px-5 py-2.5 text-sm font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5 rounded-xl transition-colors"
                       disabled={isCommiting}
                   >
                       Cancel
@@ -1137,10 +1202,10 @@ export default function AdminTeachers() {
                   <button 
                       onClick={commitTeacherUpload} 
                       disabled={!previewData || isCommiting}
-                      className={`px-5 py-2.5 rounded-xl font-medium flex items-center shadow-sm transition-all ${!previewData || isCommiting ? 'bg-slate-300 dark:bg-slate-700 text-slate-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}
+                      className={`px-6 py-2.5 text-sm font-semibold rounded-xl flex items-center shadow-sm transition-all ${!previewData || isCommiting ? 'bg-slate-300 dark:bg-slate-800 text-slate-500 dark:text-slate-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white active:scale-95'}`}
                   >
                       {isCommiting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-2" />}
-                      Import Faculty List
+                      Import Faculty
                   </button>
               </div>
           </div>
@@ -1150,23 +1215,23 @@ export default function AdminTeachers() {
       {/* Duplicate Teachers Resolver Modal */}
       {isDuplicateModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm transition-opacity animate-in fade-in">
-          <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden border border-slate-200 dark:border-white/10 shadow-2xl flex flex-col">
+          <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden border border-slate-200 dark:border-white/10 shadow-2xl flex flex-col animate-in zoom-in-95 duration-200">
             
             {/* Modal Header */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between p-5 border-b border-slate-200 dark:border-white/5 gap-4">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
-                  <GitMerge className="w-5 h-5" />
+                <div className="w-12 h-12 rounded-xl bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+                  <GitMerge className="w-6 h-6" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <h3 className="text-lg font-bold text-slate-900 dark:text-white">Faculty Duplicate Resolver</h3>
-                    <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-700/50">
+                    <h3 className="text-xl font-bold text-slate-900 dark:text-white">Duplicate Resolver</h3>
+                    <span className="px-2.5 py-0.5 rounded-md text-xs font-bold bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-700/50">
                       {duplicateGroups.length} Group{duplicateGroups.length !== 1 ? 's' : ''}
                     </span>
                   </div>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                    Resolve duplicate entries and consolidate all course allocations into primary profiles.
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+                    Merge duplicate records and safely consolidate course allocations.
                   </p>
                 </div>
               </div>
@@ -1176,72 +1241,72 @@ export default function AdminTeachers() {
                   <button
                     onClick={handleInstantMergeAll}
                     disabled={isMerging}
-                    className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white rounded-xl text-xs font-semibold flex items-center shadow-md transition-all disabled:opacity-50"
+                    className="px-4 py-2.5 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white rounded-xl text-xs font-bold flex items-center shadow-md transition-all active:scale-95 disabled:opacity-50 disabled:active:scale-100"
                     title="Instantly merge all duplicate groups into their primary records"
                   >
                     {isMerging ? (
-                      <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                      <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
                     ) : (
-                      <Sparkles className="w-3.5 h-3.5 mr-1.5 text-amber-300" />
+                      <Sparkles className="w-4 h-4 mr-1.5 text-amber-300" />
                     )}
-                    Instant Merge All ({duplicateGroups.length})
+                    Instant Merge All
                   </button>
                 )}
                 <button 
                   onClick={() => setIsDuplicateModalOpen(false)} 
-                  className="text-slate-400 hover:text-slate-600 dark:hover:text-white p-1 rounded-lg"
+                  className="text-slate-400 hover:text-slate-600 dark:hover:text-white p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-white/10 transition-colors"
                 >
-                  <X className="w-5 h-5"/>
+                  <X className="w-6 h-6"/>
                 </button>
               </div>
             </div>
 
             {/* In-progress banner */}
             {isMerging && (
-              <div className="bg-indigo-50 dark:bg-indigo-950/40 border-b border-indigo-100 dark:border-indigo-900/40 p-3.5 flex items-center justify-center gap-3 text-sm text-indigo-800 dark:text-indigo-200">
-                <Loader2 className="w-4 h-4 animate-spin text-indigo-600 dark:text-indigo-400 shrink-0" />
-                <span className="font-medium text-xs sm:text-sm">{mergeProgress || 'Processing merges safely...'}</span>
+              <div className="bg-indigo-50 dark:bg-indigo-950/40 border-b border-indigo-100 dark:border-indigo-900/40 p-4 flex items-center justify-center gap-3 text-sm text-indigo-800 dark:text-indigo-200 animate-in slide-in-from-top-2">
+                <Loader2 className="w-5 h-5 animate-spin text-indigo-600 dark:text-indigo-400 shrink-0" />
+                <span className="font-bold">{mergeProgress || 'Processing merges safely...'}</span>
               </div>
             )}
 
             {/* Filter mode header if focused on single group */}
             {selectedDuplicateGroupIndex !== null && duplicateGroups[selectedDuplicateGroupIndex] && (
-              <div className="px-5 py-2.5 bg-slate-50 dark:bg-black/30 border-b border-slate-100 dark:border-white/5 flex items-center justify-between text-xs">
-                <span className="text-slate-600 dark:text-slate-400 font-medium">
-                  Showing Group #{selectedDuplicateGroupIndex + 1} of {duplicateGroups.length}
+              <div className="px-6 py-3 bg-slate-50 dark:bg-black/30 border-b border-slate-100 dark:border-white/5 flex items-center justify-between text-sm">
+                <span className="text-slate-600 dark:text-slate-400 font-semibold">
+                  Reviewing Group #{selectedDuplicateGroupIndex + 1} of {duplicateGroups.length}
                 </span>
                 <button 
                   onClick={() => setSelectedDuplicateGroupIndex(null)}
-                  className="text-blue-600 dark:text-blue-400 hover:underline font-semibold"
+                  className="text-blue-600 dark:text-blue-400 hover:text-blue-700 font-bold hover:underline transition-colors flex items-center"
                 >
-                  View All {duplicateGroups.length} Groups
+                  <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> View All {duplicateGroups.length} Groups
                 </button>
               </div>
             )}
 
             {/* Modal Content */}
-            <div className="flex-1 overflow-y-auto p-5 sm:p-6 bg-slate-50/50 dark:bg-black/20 custom-scrollbar space-y-5">
+            <div className="flex-1 overflow-y-auto p-5 sm:p-6 bg-slate-50/50 dark:bg-black/20 custom-scrollbar space-y-6">
               {duplicateGroups.length === 0 ? (
-                <div className="py-16 flex flex-col items-center justify-center text-center">
-                  <div className="w-16 h-16 rounded-2xl bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mb-4 shadow-sm">
-                    <CheckCircle className="w-8 h-8" />
+                <div className="py-20 flex flex-col items-center justify-center text-center animate-in zoom-in-95">
+                  <div className="w-20 h-20 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mb-5 shadow-sm">
+                    <CheckCircle className="w-10 h-10" />
                   </div>
-                  <h4 className="text-lg font-bold text-slate-800 dark:text-white">All Duplicates Resolved!</h4>
-                  <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm mt-1">
-                    Every faculty member currently has a clean, unique record. No duplicate names or email addresses exist.
+                  <h4 className="text-xl font-bold text-slate-800 dark:text-white">All Duplicates Resolved!</h4>
+                  <p className="text-base text-slate-500 dark:text-slate-400 max-w-sm mt-2">
+                    Every faculty member currently has a clean, unique record.
                   </p>
                 </div>
               ) : (
                 <>
-                  <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 rounded-xl p-3.5 flex items-start gap-3 text-xs text-amber-900 dark:text-amber-200">
-                    <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                  <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 rounded-xl p-4 flex items-start gap-3 text-sm text-amber-900 dark:text-amber-200 shadow-sm">
+                    <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                     <div>
-                      <span className="font-semibold">Allocation Preservation Guarantee:</span> When you merge a group, all course and timetable allocations from every duplicate record are combined into your designated <strong>Primary</strong> record before redundant records are removed.
+                      <span className="font-bold">Allocation Preservation Guarantee:</span> When you merge a group, all assigned courses and classes from every duplicate are transferred into the <strong>Primary</strong> record before the others are deleted.
                     </div>
                   </div>
 
                   {/* Duplicate Groups Cards */}
-                  <div className="space-y-4">
+                  <div className="space-y-6">
                     {(selectedDuplicateGroupIndex !== null && duplicateGroups[selectedDuplicateGroupIndex]
                       ? [{ group: duplicateGroups[selectedDuplicateGroupIndex], idx: selectedDuplicateGroupIndex }]
                       : duplicateGroups.map((group, idx) => ({ group, idx }))
@@ -1253,23 +1318,23 @@ export default function AdminTeachers() {
                       return (
                         <div 
                           key={group.key}
-                          className="border border-slate-200 dark:border-white/10 rounded-2xl bg-white dark:bg-[#111111] overflow-hidden shadow-sm"
+                          className="border border-slate-200 dark:border-white/10 rounded-2xl bg-white dark:bg-[#111111] overflow-hidden shadow-sm animate-in slide-in-from-bottom-4"
                         >
                           {/* Group Header */}
-                          <div className="p-4 bg-slate-50/80 dark:bg-white/[0.03] border-b border-slate-200 dark:border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="px-2 py-0.5 rounded-md text-xs font-bold bg-slate-200 dark:bg-white/10 text-slate-700 dark:text-slate-300">
+                          <div className="p-4 sm:px-5 bg-slate-50/80 dark:bg-white/[0.03] border-b border-slate-200 dark:border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                            <div className="flex flex-wrap items-center gap-2.5">
+                              <span className="px-2.5 py-1 rounded-md text-xs font-bold bg-slate-200 dark:bg-white/10 text-slate-700 dark:text-slate-300">
                                 Group #{idx + 1}
                               </span>
-                              <h4 className="font-bold text-slate-900 dark:text-white text-sm sm:text-base">
+                              <h4 className="font-bold text-slate-900 dark:text-white text-base">
                                 {group.name}
                               </h4>
-                              <span className="text-xs text-slate-500 dark:text-slate-400">
+                              <span className="text-sm font-medium text-slate-500 dark:text-slate-400">
                                 ({group.teachers.length} entries)
                               </span>
-                              <div className="flex flex-wrap gap-1 ml-1">
+                              <div className="flex flex-wrap gap-1.5 ml-2">
                                 {group.reasons.map(reason => (
-                                  <span key={reason} className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">
+                                  <span key={reason} className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">
                                     {reason}
                                   </span>
                                 ))}
@@ -1279,15 +1344,15 @@ export default function AdminTeachers() {
                             <button
                               onClick={() => handleMergeSingleGroup(group)}
                               disabled={isMerging}
-                              className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-colors self-start sm:self-auto disabled:opacity-50"
+                              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm transition-all active:scale-95 self-start sm:self-auto disabled:opacity-50 disabled:active:scale-100"
                             >
-                              <GitMerge className="w-3.5 h-3.5" />
+                              <GitMerge className="w-4 h-4" />
                               Merge Group
                             </button>
                           </div>
 
                           {/* Candidates Grid */}
-                          <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div className="p-4 sm:p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
                             {group.teachers.map(t => {
                               const isPrimary = t.id === primaryId;
                               const hasAllocations = t.allocations && t.allocations.length > 0;
@@ -1296,72 +1361,68 @@ export default function AdminTeachers() {
                                 <div
                                   key={t.id}
                                   onClick={() => setSelectedPrimaries({ ...selectedPrimaries, [group.key]: t.id })}
-                                  className={`p-3.5 rounded-xl border transition-all cursor-pointer flex flex-col justify-between ${
+                                  className={`p-4 rounded-xl border-2 transition-all cursor-pointer flex flex-col justify-between ${
                                     isPrimary 
-                                      ? 'border-emerald-500 bg-emerald-50/40 dark:bg-emerald-950/20 shadow-sm ring-1 ring-emerald-500' 
-                                      : 'border-slate-200 dark:border-white/10 bg-slate-50/60 dark:bg-white/[0.02] hover:border-slate-300 dark:hover:border-white/20'
+                                      ? 'border-emerald-500 bg-emerald-50/40 dark:bg-emerald-950/20 shadow-md ring-4 ring-emerald-500/10' 
+                                      : 'border-slate-200 dark:border-white/10 bg-slate-50/60 dark:bg-white/[0.02] hover:border-slate-300 dark:hover:border-white/20 hover:shadow-sm'
                                   }`}
                                 >
                                   <div>
-                                    <div className="flex items-center justify-between gap-2 mb-2">
-                                      <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-800 dark:text-slate-200">
-                                        <input
-                                          type="radio"
-                                          name={`primary-${group.key}`}
-                                          checked={isPrimary}
-                                          onChange={() => setSelectedPrimaries({ ...selectedPrimaries, [group.key]: t.id })}
-                                          className="text-emerald-600 focus:ring-emerald-500 h-3.5 w-3.5"
-                                        />
+                                    <div className="flex items-center justify-between gap-2 mb-3">
+                                      <label className="flex items-center gap-2.5 cursor-pointer text-xs font-bold text-slate-800 dark:text-slate-200">
+                                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${isPrimary ? 'border-emerald-500 bg-emerald-500' : 'border-slate-300 dark:border-slate-600'}`}>
+                                            {isPrimary && <div className="w-1.5 h-1.5 bg-white rounded-full"></div>}
+                                        </div>
                                         ID #{t.id}
                                       </label>
 
                                       {isPrimary ? (
-                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300 flex items-center gap-1">
-                                          <Check className="w-3 h-3" /> Keep as Primary
+                                        <span className="px-2.5 py-1 rounded-md text-[10px] font-bold bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5 uppercase tracking-wider">
+                                          <Check className="w-3.5 h-3.5" /> Primary
                                         </span>
                                       ) : (
-                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-200 dark:bg-white/10 text-slate-600 dark:text-slate-400">
-                                          Merge & Delete
+                                        <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-200 dark:bg-white/10 text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                                          Will Delete
                                         </span>
                                       )}
                                     </div>
 
-                                    <div className="space-y-1">
-                                      <p className="font-bold text-sm text-slate-900 dark:text-white truncate">
+                                    <div className="space-y-1.5">
+                                      <p className="font-bold text-base text-slate-900 dark:text-white truncate">
                                         {t.full_name}
                                       </p>
-                                      <p className={`text-xs truncate ${!isPrimary && t.email?.includes('.@') ? 'text-red-500 line-through' : 'text-slate-600 dark:text-slate-300'}`}>
+                                      <p className={`text-sm truncate ${!isPrimary && t.email?.includes('.@') ? 'text-red-500 line-through' : 'text-slate-600 dark:text-slate-300'}`}>
                                         {t.email}
                                       </p>
-                                      <span className="inline-block px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 capitalize">
+                                      <span className="inline-block px-2 py-1 rounded-md text-xs font-semibold bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-300 capitalize">
                                         {t.teacher_type}
                                       </span>
                                     </div>
                                   </div>
 
                                   {/* Allocations summary in candidate card */}
-                                  <div className="mt-3 pt-2.5 border-t border-slate-200 dark:border-white/10">
+                                  <div className="mt-4 pt-3 border-t border-slate-200 dark:border-white/10">
                                     {hasAllocations ? (
                                       <div>
-                                        <p className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1 flex items-center gap-1">
-                                          <BookOpen className="w-3 h-3 text-indigo-500" />
-                                          {t.allocations.length} Class Allocation{t.allocations.length !== 1 ? 's' : ''}:
+                                        <p className="text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-2 flex items-center gap-1.5 uppercase tracking-wider">
+                                          <BookOpen className="w-3.5 h-3.5 text-indigo-500" />
+                                          {t.allocations.length} Class{t.allocations.length !== 1 ? 'es' : ''} Assigned:
                                         </p>
-                                        <div className="flex flex-wrap gap-1">
+                                        <div className="flex flex-wrap gap-1.5">
                                           {t.allocations.slice(0, 3).map((a, aIdx) => (
-                                            <span key={aIdx} className="px-1.5 py-0.5 rounded bg-white dark:bg-white/10 border border-slate-200 dark:border-white/10 text-[9.5px] font-medium text-slate-700 dark:text-slate-300">
-                                              {a.course_code} ({a.stream} Sem {a.semester})
+                                            <span key={aIdx} className="px-2 py-1 rounded-md bg-white dark:bg-white/10 border border-slate-200 dark:border-white/10 text-[10px] font-bold text-slate-600 dark:text-slate-300 shadow-sm">
+                                              {a.course_code} ({a.stream} S{a.semester})
                                             </span>
                                           ))}
                                           {t.allocations.length > 3 && (
-                                            <span className="px-1.5 py-0.5 text-[10px] text-slate-400">
+                                            <span className="px-2 py-1 rounded-md text-[10px] font-bold text-slate-400 bg-slate-100 dark:bg-white/5 border border-transparent">
                                               +{t.allocations.length - 3} more
                                             </span>
                                           )}
                                         </div>
                                       </div>
                                     ) : (
-                                      <p className="text-[11px] text-slate-400 italic">No class allocations assigned</p>
+                                      <p className="text-xs text-slate-400 italic font-medium">No classes assigned</p>
                                     )}
                                   </div>
                                 </div>
@@ -1370,12 +1431,12 @@ export default function AdminTeachers() {
                           </div>
 
                           {/* Group Footer Summary */}
-                          <div className="px-4 py-2.5 bg-slate-50 dark:bg-white/[0.02] border-t border-slate-100 dark:border-white/5 text-xs text-slate-600 dark:text-slate-400 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                          <div className="px-5 py-3.5 bg-slate-50 dark:bg-white/[0.02] border-t border-slate-100 dark:border-white/5 text-sm text-slate-700 dark:text-slate-300 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
                             <span>
-                              Result after merge: <strong>{primaryTeacher.full_name}</strong> will retain all <strong>{totalGroupAllocs}</strong> class allocation{totalGroupAllocs !== 1 ? 's' : ''}.
+                              After merge: <strong>{primaryTeacher.full_name}</strong> retains all <strong className="text-indigo-600 dark:text-indigo-400">{totalGroupAllocs}</strong> classes.
                             </span>
-                            <span className="text-[11px] text-slate-400">
-                              {group.teachers.length - 1} redundant record{group.teachers.length - 1 !== 1 ? 's' : ''} will be deleted.
+                            <span className="text-xs font-semibold text-slate-500 bg-slate-200 dark:bg-white/10 px-2 py-1 rounded-md">
+                              {group.teachers.length - 1} redundant record{group.teachers.length - 1 !== 1 ? 's' : ''} deleted.
                             </span>
                           </div>
                         </div>
@@ -1387,21 +1448,21 @@ export default function AdminTeachers() {
             </div>
 
             {/* Modal Bottom Action Bar */}
-            <div className="p-4 sm:p-5 border-t border-slate-200 dark:border-white/5 bg-white dark:bg-[#1a1a1a] flex flex-col sm:flex-row justify-between items-center gap-3">
-              <div className="text-xs text-slate-500 dark:text-slate-400">
+            <div className="p-5 border-t border-slate-200 dark:border-white/5 bg-white dark:bg-[#1a1a1a] flex flex-col sm:flex-row justify-between items-center gap-4">
+              <div className="text-sm text-slate-500 dark:text-slate-400">
                 {duplicateGroups.length > 0 ? (
                   <span>
-                    Total <strong>{duplicateGroups.reduce((acc, g) => acc + g.teachers.length, 0)} teachers</strong> in <strong>{duplicateGroups.length} duplicate groups</strong>.
+                    Total <strong className="text-slate-700 dark:text-slate-200">{duplicateGroups.reduce((acc, g) => acc + g.teachers.length, 0)} teachers</strong> in <strong className="text-slate-700 dark:text-slate-200">{duplicateGroups.length} duplicate groups</strong>.
                   </span>
                 ) : (
-                  <span>Faculty roster is clean and unified.</span>
+                  <span className="font-medium">Faculty roster is clean and unified.</span>
                 )}
               </div>
 
-              <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end">
+              <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
                 <button
                   onClick={() => setIsDuplicateModalOpen(false)}
-                  className="px-4 py-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5 rounded-xl font-medium text-xs sm:text-sm transition-colors"
+                  className="px-5 py-2.5 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5 rounded-xl font-bold text-sm transition-colors"
                 >
                   Close
                 </button>
@@ -1410,14 +1471,14 @@ export default function AdminTeachers() {
                   <button
                     onClick={handleInstantMergeAll}
                     disabled={isMerging}
-                    className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-semibold text-xs sm:text-sm flex items-center shadow-md transition-all disabled:opacity-50"
+                    className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-sm flex items-center shadow-md transition-all active:scale-95 disabled:opacity-50 disabled:active:scale-100"
                   >
                     {isMerging ? (
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                     ) : (
                       <Sparkles className="w-4 h-4 mr-2 text-amber-300" />
                     )}
-                    Instant Merge All ({duplicateGroups.length})
+                    Merge All ({duplicateGroups.length})
                   </button>
                 )}
               </div>
@@ -1429,8 +1490,10 @@ export default function AdminTeachers() {
       <style dangerouslySetInnerHTML={{__html: `
         .custom-scrollbar::-webkit-scrollbar { height: 6px; width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
         .dark .custom-scrollbar::-webkit-scrollbar-thumb { background: #333; }
+        .dark .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #555; }
       `}} />
     </div>
   );
