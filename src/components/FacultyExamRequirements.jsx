@@ -9,7 +9,7 @@ import * as XLSX from 'xlsx';
 
 // Options for dropdowns
 const SEMESTER_OPTIONS = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'];
-const COURSE_TYPE_OPTIONS = ['Regular', 'Regular+ Repeat', 'Repeat', 'Recourse', 'MDC', 'Multidisciplinary Course', 'Open elective'];
+const COURSE_TYPE_OPTIONS = ['Regular', 'Regular+ Repeat', 'Repeat', 'Recourse', 'MDC', 'Multidisciplinary Course', 'Open elective','Core Elective'];
 const EXAM_MODE_OPTIONS = ['Written', 'Online/Lab exam', 'Lab Based', 'Project-based evaluation', 'Project Based (Viva)', 'MCQ Quiz - Online', 'MCQ Quiz - Offline'];
 const DURATION_PRESETS = ['1', '1.5', '2', '3', '30 Min', '45 Min', 'Complete Day for whole batch'];
 const IS_CONDUCTED_OPTIONS = ['Yes', 'No'];
