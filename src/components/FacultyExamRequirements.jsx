@@ -50,6 +50,68 @@ const getPillColor = (value, colKey) => {
     return 'bg-slate-100 text-slate-800 dark:bg-white/10 dark:text-slate-200';
 };
 
+// Advanced sanitization to transform messy typing/pasting into clean preset options
+const sanitizeValue = (colKey, rawValue) => {
+    if (rawValue == null) return '';
+    let str = String(rawValue).trim();
+    if (!str) return '';
+    const lower = str.toLowerCase();
+
+    if (colKey === 'is_conducted') {
+        if (['yes', 'y', 'yup'].includes(lower)) return 'Yes';
+        if (['no', 'n', 'nope'].includes(lower)) return 'No';
+        return str;
+    }
+
+    if (colKey === 'exam_weightage') {
+        const match = str.match(/^[\d.]+/); // strips '%' or letters, keeps numbers
+        if (match) return match[0];
+        return str;
+    }
+
+    if (colKey === 'duration') {
+        if (lower.includes('30 min') || lower.includes('30min') || lower.includes('0.5') || lower === '.5') return '30 Min';
+        if (lower.includes('45 min') || lower.includes('45min') || lower.includes('0.75')) return '45 Min';
+        if (lower.includes('1.5') || lower.includes('1 hr 30') || lower.includes('1 hour 30') || lower.includes('90 min')) return '1.5';
+        if (lower.includes('2.5') || lower.includes('2 hr 30') || lower.includes('2 hour 30') || lower.includes('150 min')) return '2.5';
+        
+        if (lower === '1' || lower === '1 hr' || lower === '1 hour' || lower === '1 hrs' || lower === '1 hours' || lower.includes('60 min')) return '1';
+        if (lower === '2' || lower === '2 hr' || lower === '2 hour' || lower === '2 hrs' || lower === '2 hours' || lower.includes('120 min')) return '2';
+        if (lower === '3' || lower === '3 hr' || lower === '3 hour' || lower === '3 hrs' || lower === '3 hours' || lower.includes('180 min')) return '3';
+        if (lower.includes('complete') || lower.includes('whole')) return 'Complete Day for whole batch';
+        
+        const match = str.match(/^[\d.]+/);
+        if (match) return match[0];
+        return str;
+    }
+
+    if (colKey === 'course_type') {
+        if (lower.includes('regular') && (lower.includes('repeat') || lower.includes('+ repeat'))) return 'Regular+ Repeat';
+        if (lower.includes('regular') && (lower.includes('recourse') || lower.includes('+ recourse'))) return 'Recourse';
+        if (lower === 'regular') return 'Regular';
+        if (lower.includes('mdc') || lower.includes('excel novice')) return 'MDC'; 
+        if (lower.includes('open elective')) return 'Open elective';
+        if (lower.includes('core elective') || lower.includes('elective')) return 'Core Elective'; 
+        if (lower.includes('multidisciplinary') || lower.includes('multi')) return 'Multidisciplinary Course';
+        if (lower.includes('recourse')) return 'Recourse';
+        if (lower.includes('repeat')) return 'Repeat';
+        return str.charAt(0).toUpperCase() + str.slice(1); // capitalize fallback
+    }
+
+    if (colKey === 'exam_mode') {
+        if (lower.includes('project') && lower.includes('viva')) return 'Project Based (Viva)';
+        if (lower.includes('project')) return 'Project-based evaluation';
+        if (lower.includes('mcq') && lower.includes('online')) return 'MCQ Quiz - Online';
+        if (lower.includes('mcq') && lower.includes('offline')) return 'MCQ Quiz - Offline';
+        if (lower.includes('lab') && lower.includes('online')) return 'Online/Lab exam';
+        if (lower.includes('lab') && !lower.includes('online')) return 'Lab Based';
+        if (lower.includes('written')) return 'Written';
+        return str; 
+    }
+
+    return str;
+};
+
 // Hardcoded examples acting as View-Only rows at the top of the sheet
 const HARDCODED_EXAMPLES = [
     { id: 'ex1', is_example: true, coordinator_name: 'Dr. Example One', semester: '3rd', course_name: 'Introduction to AI', course_code: 'CSC301', is_conducted: 'Yes', course_type: 'Regular', exam_mode: 'Written', exam_weightage: '40', duration: '2', remark: 'Standard exam protocol', is_reexam: false },
@@ -143,7 +205,7 @@ export default function FacultyExamRequirements({ user, isAdmin = false }) {
   // UI & History states
   const [showInstructions, setShowInstructions] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(100);
-  const [isZoomOpen, setIsZoomOpen] = useState(false); // FIXED: Added missing state to prevent blank screen crash
+  const [isZoomOpen, setIsZoomOpen] = useState(false); 
   const [history, setHistory] = useState([]);
   const [future, setFuture] = useState([]);
 
@@ -329,7 +391,8 @@ export default function FacultyExamRequirements({ user, isAdmin = false }) {
       }
 
       let loadedRows = [];
-      const reqRes = await fetch(`${backendUrl}/api/exam-requirements`).catch(() => null);
+      // Cache buster included here to prevent stale reload bugs!
+      const reqRes = await fetch(`${backendUrl}/api/exam-requirements?t=${Date.now()}`).catch(() => null);
       if (reqRes?.ok) {
         const data = await reqRes.json().catch(() => ([]));
         if (Array.isArray(data)) loadedRows = data;
@@ -408,30 +471,17 @@ export default function FacultyExamRequirements({ user, isAdmin = false }) {
   const handleCellChange = (rowIdx, colKey, value) => {
     const updated = [...(rows || [])];
     const targetRow = { ...(updated[rowIdx] || {}) };
-    targetRow[colKey] = value;
+    
+    // Process input aggressively to clean it before saving state
+    targetRow[colKey] = sanitizeValue(colKey, value);
 
-    const inputVal = String(value || '').trim().toUpperCase();
+    const inputVal = String(targetRow[colKey] || '').trim().toUpperCase();
 
     if (['course_code', 'course_name', 'course_type'].includes(colKey)) {
       const code = String(targetRow?.course_code || '').toUpperCase();
       const name = String(targetRow?.course_name || '').toUpperCase();
       const type = String(targetRow?.course_type || '').toUpperCase();
       targetRow.is_reexam = code.endsWith('R') || name.includes('(RE)') || name.includes('RE-EXAM') || type.includes('REPEAT') || type.includes('RECOURSE');
-    }
-
-    if (['course_name', 'course_code'].includes(colKey) && inputVal !== '') {
-      const safeCatalog = Array.isArray(catalogCourses) ? catalogCourses : [];
-      let matched = safeCatalog.find(c => String(c?.course_title || '').toUpperCase() === inputVal || String(c?.course_code || '').toUpperCase() === inputVal);
-      if (!matched && inputVal.length > 1 && inputVal.length <= 5) {
-          matched = safeCatalog.find(c => getAcronym(c?.course_title) === inputVal);
-      }
-      if (matched) {
-        targetRow.course_name = matched.course_title || targetRow.course_name;
-        targetRow.course_code = matched.course_code || targetRow.course_code;
-        if (!targetRow.semester && Array.isArray(matched.taught_in) && matched.taught_in.length > 0) {
-          targetRow.semester = `${matched.taught_in[0].semester}${matched.taught_in[0].semester === 1 ? 'st' : (matched.taught_in[0].semester === 2 ? 'nd' : (matched.taught_in[0].semester === 3 ? 'rd' : 'th'))}`;
-        }
-      }
     }
 
     if (!targetRow.coordinator_name && ['course_name', 'course_code'].includes(colKey) && inputVal !== '') {
@@ -446,7 +496,21 @@ export default function FacultyExamRequirements({ user, isAdmin = false }) {
 
   const handleSyncToBackend = async () => {
     const snapshotRows = Array.isArray(rowsRef.current) ? rowsRef.current : [];
-    const snapshotDeleted = Array.isArray(deletedIdsRef.current) ? deletedIdsRef.current : [];
+    let snapshotDeleted = Array.isArray(deletedIdsRef.current) ? [...deletedIdsRef.current] : [];
+    
+    const validRows = [];
+    
+    // Check for empty rows that exist in the database and mark them for deletion
+    snapshotRows.forEach(r => {
+        if (!r || r.is_example) return;
+        if (isRowNotEmpty(r)) {
+            validRows.push(r);
+        } else if (r.id && !String(r.id).includes('temp')) {
+            if (!snapshotDeleted.includes(r.id)) {
+                snapshotDeleted.push(r.id);
+            }
+        }
+    });
     
     if ((!hasUnsavedChanges && snapshotDeleted.length === 0) || !isEditable) return;
     
@@ -455,11 +519,14 @@ export default function FacultyExamRequirements({ user, isAdmin = false }) {
     setStatusMessage('');
 
     try {
-      const validRows = snapshotRows.filter(r => isRowNotEmpty(r) && r && !r.is_example);
-      
       const payload = {
         rows: validRows.map(r => {
-          const rowData = { ...r, coordinator_name: r?.coordinator_name || facultyName, coordinator_id: user?.id || null, coordinator_email: user?.email || null };
+          const rowData = { 
+              ...r, 
+              coordinator_name: r.coordinator_name, // Removed aggressive facultyName fallback that overwrites intentional clears
+              coordinator_id: user?.id || null, 
+              coordinator_email: user?.email || null 
+          };
           if (rowData.id && String(rowData.id).includes('temp')) delete rowData.id;
           return rowData;
         }),
@@ -585,7 +652,10 @@ export default function FacultyExamRequirements({ user, isAdmin = false }) {
             const targetColIdx = startColIdx + j;
             if (targetColIdx < columns.length) {
                 const colKey = columns[targetColIdx].key;
-                const value = String(rowData[j] || '').trim();
+                
+                // Sanitize upon pasting
+                const value = sanitizeValue(colKey, String(rowData[j] || '').trim());
+                
                 targetRow[colKey] = value;
                 rowHasChanged = true;
 
@@ -879,11 +949,11 @@ export default function FacultyExamRequirements({ user, isAdmin = false }) {
             semester: findKey(['semester', 'sem']) || '',
             course_name: cName,
             course_code: cCode,
-            is_conducted: findKey(['whether', 'conduct', 'committee']) || '',
-            course_type: cType,
-            exam_mode: findKey(['exam mode', 'mode']) || '',
-            exam_weightage: (findKey(['weightage', 'weight']) || '').toString(),
-            duration: (findKey(['duration', 'time', 'hours']) || '').toString(),
+            is_conducted: sanitizeValue('is_conducted', findKey(['whether', 'conduct', 'committee'])),
+            course_type: sanitizeValue('course_type', cType),
+            exam_mode: sanitizeValue('exam_mode', findKey(['exam mode', 'mode'])),
+            exam_weightage: sanitizeValue('exam_weightage', findKey(['weightage', 'weight'])),
+            duration: sanitizeValue('duration', findKey(['duration', 'time', 'hours'])),
             remark: findKey(['remark', 'notes', 'comment']) || '',
             is_reexam: cCode.toUpperCase().endsWith('R') || cName.toUpperCase().includes('(RE)') || cType.toUpperCase().includes('REPEAT')
           };
