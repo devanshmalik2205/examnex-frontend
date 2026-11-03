@@ -50,44 +50,56 @@ export default function ExamScheduleAssigner() {
       try {
         const { exams, teachers } = data;
 
-        // 1. Initialize teacher tracking structures
-        const facultyTrackers = teachers.map(t => ({
-          ...t,
-          isPhD: t.teacher_type.toLowerCase().includes('phd') || t.teacher_type.toLowerCase().includes('scholar'),
-          isLab: t.teacher_type.toLowerCase().includes('lab') || t.teacher_type.toLowerCase().includes('engineer'),
-          isFaculty: !t.teacher_type.toLowerCase().includes('phd') && !t.teacher_type.toLowerCase().includes('lab') && !t.teacher_type.toLowerCase().includes('scholar') && !t.teacher_type.toLowerCase().includes('engineer'),
-          roleClass: t.teacher_type.toLowerCase().includes('assistant') ? 'assistant' : 
-                     t.teacher_type.toLowerCase().includes('associate') ? 'associate' : 
-                     t.teacher_type.toLowerCase().includes('professor') ? 'professor' : 'other',
-          ownDuties: [],
-          otherDuties: [],
-          totalDuties: 0,
-          assignedSlots: new Set(),
-          maxDuties: 0 // Will be set below
-        }));
+        if (!teachers || teachers.length === 0) {
+            setError('No faculty members found in the system! You must add teachers or import allocations before assigning duties.');
+            setGenerating(false);
+            return;
+        }
 
-        // Set max duties per rules
+        // 1. Initialize teacher tracking structures safely
+        const facultyTrackers = teachers.map(t => {
+          const typeStr = (t.teacher_type || 'Faculty').toLowerCase();
+          return {
+            ...t,
+            isPhD: typeStr.includes('phd') || typeStr.includes('scholar'),
+            isLab: typeStr.includes('lab') || typeStr.includes('engineer'),
+            isFaculty: !typeStr.includes('phd') && !typeStr.includes('lab') && !typeStr.includes('scholar') && !typeStr.includes('engineer'),
+            roleClass: typeStr.includes('assistant') ? 'assistant' : 
+                       typeStr.includes('associate') ? 'associate' : 
+                       typeStr.includes('professor') ? 'professor' : 'other',
+            coursesTaught: Array.isArray(t.courses_taught) ? t.courses_taught : (typeof t.courses_taught === 'string' ? JSON.parse(t.courses_taught || '[]') : []),
+            ownDuties: [],
+            otherDuties: [],
+            totalDuties: 0,
+            assignedSlots: [], // Upgraded to Array for robust time overlap checking
+            maxDuties: 0
+          };
+        });
+
+        // Set baseline max duties per rules
         facultyTrackers.forEach(f => {
           if (f.isPhD) f.maxDuties = 3;
           else if (f.isLab) f.maxDuties = 3;
           else if (f.roleClass === 'assistant') f.maxDuties = 3;
           else if (f.roleClass === 'associate') f.maxDuties = 2;
-          else if (f.roleClass === 'professor') f.maxDuties = 1; // Can stretch to 2 if needed
+          else if (f.roleClass === 'professor') f.maxDuties = 1; 
           else f.maxDuties = 3; 
         });
 
         // 2. Group Exams by Room, Date, and Time (Unique Invigilation Session)
         const roomSessions = new Map();
         exams.forEach(exam => {
-          if (!exam.room || exam.room === 'TBA') return; // Skip unassigned rooms
-          const key = `${exam.date}_${exam.start_time}_${exam.room}`;
+          // If no physical room is assigned yet, group by course code so it still assigns an invigilator!
+          const assignedRoom = (!exam.room || exam.room === 'TBA') ? `Room TBA (${exam.course_code})` : exam.room;
+          const key = `${exam.date}_${exam.start_time}_${assignedRoom}`;
+          
           if (!roomSessions.has(key)) {
             roomSessions.set(key, {
               key,
               date: exam.date,
               startTime: exam.start_time,
               endTime: exam.end_time,
-              room: exam.room,
+              room: assignedRoom,
               courses: new Set(),
               batches: new Set(),
               rawExams: [],
@@ -96,36 +108,59 @@ export default function ExamScheduleAssigner() {
           }
           const session = roomSessions.get(key);
           session.courses.add(exam.course_code);
-          session.batches.add(`${exam.stream} S${exam.semester}`);
+          if (exam.stream !== 'GENERIC') {
+              session.batches.add(`${exam.stream} S${exam.semester}`);
+          }
           session.rawExams.push(exam);
         });
 
         const sessionsArray = Array.from(roomSessions.values());
 
-        // Helper to assign a teacher to a session
+        // STRICT TIME OVERLAP CHECKER: Ensures a teacher cannot be in 2 rooms at the same time
+        const isTeacherBusy = (teacher, session) => {
+            const sessDate = new Date(session.date).toISOString().split('T')[0];
+            return teacher.assignedSlots.some(slot => {
+                const slotDate = new Date(slot.date).toISOString().split('T')[0];
+                if (slotDate !== sessDate) return false; // Different day, not busy
+                
+                // Mathematical Overlap check: Start A < End B AND Start B < End A
+                return (session.startTime < slot.endTime && slot.startTime < session.endTime);
+            });
+        };
+
+        // Helper to assign a teacher to a session and lock their time
         const assignTeacher = (teacher, session, dutyType) => {
           teacher.totalDuties++;
-          teacher.assignedSlots.add(`${session.date}_${session.startTime}`);
+          
+          // Lock out this specific time block for this teacher to prevent double-booking
+          teacher.assignedSlots.push({
+              date: session.date,
+              startTime: session.startTime,
+              endTime: session.endTime
+          });
+          
           const slotCode = formatSlotKey(session.date, session.startTime);
-          if (dutyType === 'own') teacher.ownDuties.push(slotCode);
-          else teacher.otherDuties.push(slotCode);
-          session.invigilator = { name: teacher.full_name, type: teacher.teacher_type };
+          // INCLUDE ROOM IN THE DUTY OUTPUT STRING
+          const dutyRecord = `${slotCode} [${session.room}]`;
+          
+          if (dutyType === 'own') teacher.ownDuties.push(dutyRecord);
+          else teacher.otherDuties.push(dutyRecord);
+          
+          session.invigilator = { name: teacher.full_name, type: teacher.teacher_type || 'Faculty' };
         };
 
         // 3. Assign "Own" Duties first (Faculty evaluating their own courses)
         sessionsArray.forEach(session => {
           const sessionCourses = Array.from(session.courses);
           
-          // Find faculty who teach this course and haven't exceeded limits
           const eligibleOwnTeachers = facultyTrackers.filter(t => 
             t.isFaculty && 
-            t.courses_taught.some(c => sessionCourses.includes(c)) &&
-            !t.assignedSlots.has(`${session.date}_${session.startTime}`) &&
+            t.coursesTaught.some(c => sessionCourses.includes(c)) &&
+            !isTeacherBusy(t, session) && // Enforce double booking lockout
             t.totalDuties < t.maxDuties
           );
 
           if (eligibleOwnTeachers.length > 0) {
-            // Pick one randomly or by lowest duties
             eligibleOwnTeachers.sort((a, b) => a.totalDuties - b.totalDuties);
             assignTeacher(eligibleOwnTeachers[0], session, 'own');
           }
@@ -136,19 +171,16 @@ export default function ExamScheduleAssigner() {
         // Sorting/Priority logic helper
         const assignFromPool = (pool, session, dutyType = 'other') => {
           const available = pool.filter(t => 
-            !t.assignedSlots.has(`${session.date}_${session.startTime}`) && 
+            !isTeacherBusy(t, session) && // Enforce double booking lockout
             t.totalDuties < t.maxDuties
           );
 
           if (available.length === 0) return false;
 
-          // For faculty, prioritize those who have Own duties but NO Other duties yet (Rule enforcement)
           available.sort((a, b) => {
             const aNeedsMandatory = (a.isFaculty && a.ownDuties.length > 0 && a.otherDuties.length === 0) ? -1 : 0;
             const bNeedsMandatory = (b.isFaculty && b.ownDuties.length > 0 && b.otherDuties.length === 0) ? -1 : 0;
             if (aNeedsMandatory !== bNeedsMandatory) return aNeedsMandatory - bNeedsMandatory;
-            
-            // Then sort by total duties ascending to spread load
             return a.totalDuties - b.totalDuties;
           });
 
@@ -172,11 +204,12 @@ export default function ExamScheduleAssigner() {
           if (assignFromPool(pools.assoc, session)) return;
           if (assignFromPool(pools.prof, session)) return;
 
-          // Stretch professors to 2 duties if desperate
-          const stretchProfs = pools.prof.filter(t => t.totalDuties === 1 && !t.assignedSlots.has(`${session.date}_${session.startTime}`));
-          if (stretchProfs.length > 0) {
-            stretchProfs.sort((a, b) => a.totalDuties - b.totalDuties);
-            assignTeacher(stretchProfs[0], session, 'other');
+          // DESPERATE FALLBACK: If standard caps are maxed out, assign ANY free teacher ignoring max limits!
+          const anyFree = facultyTrackers.filter(t => !isTeacherBusy(t, session));
+          if (anyFree.length > 0) {
+              // Pick the one with the absolute lowest current burden
+              anyFree.sort((a, b) => a.totalDuties - b.totalDuties);
+              assignTeacher(anyFree[0], session, 'other');
           }
         });
 
@@ -194,7 +227,7 @@ export default function ExamScheduleAssigner() {
         setGenerating(false);
       } catch (err) {
         console.error(err);
-        setError('Error generating assignments. Make sure rooms are allocated.');
+        setError('Error generating assignments. Please check console for details.');
         setGenerating(false);
       }
     }, 800);
@@ -206,7 +239,7 @@ export default function ExamScheduleAssigner() {
     const wb = XLSX.utils.book_new();
     const { trackers, sessions } = assignments;
 
-    // 1. Faculty Sheet
+    // 1. Faculty Sheet (Widened columns for longer duty strings with rooms)
     const facultyData = trackers.filter(t => t.isFaculty && t.totalDuties > 0).sort((a,b) => a.full_name.localeCompare(b.full_name));
     const facultyAoA = [
       ["Faculty Name", "Own Exam", "Own Exam", "Own Exam", "Other Exam", "Other Exam", "Other Exam"]
@@ -219,29 +252,29 @@ export default function ExamScheduleAssigner() {
       ]);
     });
     const wsFaculty = XLSX.utils.aoa_to_sheet(facultyAoA);
-    wsFaculty['!cols'] = [{ wch: 30 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }];
+    wsFaculty['!cols'] = [{ wch: 30 }, { wch: 22 }, { wch: 22 }, { wch: 22 }, { wch: 22 }, { wch: 22 }, { wch: 22 }];
     XLSX.utils.book_append_sheet(wb, wsFaculty, "Faculty Duties");
 
     // 2. Lab Staff Sheet
     const labData = trackers.filter(t => t.isLab && t.totalDuties > 0);
     const labAoA = [["S.No.", "Lab Staff Name", "Duties"]];
     labData.forEach((l, idx) => {
-      const allDuties = [...l.ownDuties, ...l.otherDuties].join('/');
+      const allDuties = [...l.ownDuties, ...l.otherDuties].join(' | ');
       labAoA.push([idx + 1, l.full_name, allDuties]);
     });
     const wsLab = XLSX.utils.aoa_to_sheet(labAoA);
-    wsLab['!cols'] = [{ wch: 8 }, { wch: 25 }, { wch: 30 }];
+    wsLab['!cols'] = [{ wch: 8 }, { wch: 25 }, { wch: 45 }];
     XLSX.utils.book_append_sheet(wb, wsLab, "Lab Staff");
 
     // 3. PhD Scholars Sheet
     const phdData = trackers.filter(t => t.isPhD && t.totalDuties > 0);
     const phdAoA = [["S.No.", "Name", "School", "Duties"]];
     phdData.forEach((p, idx) => {
-      const allDuties = [...p.ownDuties, ...p.otherDuties].join('/');
+      const allDuties = [...p.ownDuties, ...p.otherDuties].join(' | ');
       phdAoA.push([idx + 1, p.full_name, "SOET", allDuties]);
     });
     const wsPhd = XLSX.utils.aoa_to_sheet(phdAoA);
-    wsPhd['!cols'] = [{ wch: 8 }, { wch: 25 }, { wch: 15 }, { wch: 30 }];
+    wsPhd['!cols'] = [{ wch: 8 }, { wch: 25 }, { wch: 15 }, { wch: 45 }];
     XLSX.utils.book_append_sheet(wb, wsPhd, "PhD Scholars");
 
     // 4. Datesheets (Grouped by Date and Slot)
@@ -282,7 +315,7 @@ export default function ExamScheduleAssigner() {
         session.rawExams.forEach(exam => {
           aoa.push([
             rowNum++,
-            `${exam.stream} Sem ${exam.semester}`,
+            exam.stream === 'GENERIC' ? 'Global / Common' : `${exam.stream} Sem ${exam.semester}`,
             exam.course_code,
             exam.course_title,
             session.room,
@@ -295,12 +328,11 @@ export default function ExamScheduleAssigner() {
 
       const ws = XLSX.utils.aoa_to_sheet(aoa);
       ws['!cols'] = [
-        { wch: 5 }, { wch: 15 }, { wch: 15 }, { wch: 35 }, { wch: 12 }, 
+        { wch: 5 }, { wch: 15 }, { wch: 15 }, { wch: 35 }, { wch: 18 }, 
         { wch: 25 }, { wch: 15 }, { wch: 12 }, { wch: 15 }, { wch: 15 },
         { wch: 18 }, { wch: 18 }, { wch: 12 }, { wch: 10 }, { wch: 10 }
       ];
 
-      // Add bolding to top rows
       ws['A1'].s = { font: { bold: true } };
       
       XLSX.utils.book_append_sheet(wb, ws, sheetName);
@@ -337,7 +369,6 @@ export default function ExamScheduleAssigner() {
       ) : (
         <div className="bg-white dark:bg-[#111111] rounded-2xl shadow-sm border border-slate-200 dark:border-white/10 overflow-hidden transition-colors flex flex-col">
           
-          {/* Top Control Bar */}
           <div className="p-6 border-b border-slate-200 dark:border-white/10 bg-slate-50/50 dark:bg-white/5 flex flex-col sm:flex-row justify-between items-center gap-4">
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-xl flex items-center justify-center shadow-sm">
@@ -370,7 +401,6 @@ export default function ExamScheduleAssigner() {
             </div>
           </div>
 
-          {/* Results Area */}
           <div className="p-6">
             {!assignments ? (
               <div className="text-center py-16 text-slate-400">
@@ -380,7 +410,6 @@ export default function ExamScheduleAssigner() {
             ) : (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
                 
-                {/* Statistics Cards */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div className="bg-slate-50 dark:bg-black/30 border border-slate-200 dark:border-white/10 rounded-xl p-4 flex items-center justify-between">
                     <div>
@@ -413,7 +442,6 @@ export default function ExamScheduleAssigner() {
                   </div>
                 </div>
 
-                {/* Duty Details Table Preview */}
                 <div className="border border-slate-200 dark:border-white/10 rounded-xl overflow-hidden">
                   <div className="bg-slate-100 dark:bg-white/5 px-4 py-3 border-b border-slate-200 dark:border-white/10">
                     <h3 className="font-bold text-slate-800 dark:text-slate-200 text-sm">Faculty & Staff Allocation Preview</h3>
@@ -446,12 +474,12 @@ export default function ExamScheduleAssigner() {
                               {t.totalDuties} <span className="text-slate-400 text-xs font-normal">/ {t.maxDuties}</span>
                             </td>
                             <td className="px-4 py-3">
-                              <div className="flex gap-1">
+                              <div className="flex flex-wrap gap-1">
                                 {t.ownDuties.map((d, i) => <span key={i} className="px-2 py-0.5 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-300 rounded text-xs font-bold">{d}</span>)}
                               </div>
                             </td>
                             <td className="px-4 py-3">
-                              <div className="flex gap-1">
+                              <div className="flex flex-wrap gap-1">
                                 {t.otherDuties.map((d, i) => <span key={i} className="px-2 py-0.5 bg-slate-100 dark:bg-white/10 text-slate-700 dark:text-slate-300 rounded text-xs font-bold">{d}</span>)}
                               </div>
                             </td>
@@ -467,7 +495,6 @@ export default function ExamScheduleAssigner() {
           </div>
         </div>
       )}
-
       <style dangerouslySetInnerHTML={{__html: `
         .custom-scrollbar::-webkit-scrollbar { height: 8px; width: 8px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }

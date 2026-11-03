@@ -27,14 +27,17 @@ export default function AdminScheduleGenerator() {
     const [successMsg, setSuccessMsg] = useState(null);
     const [existingExamsCount, setExistingExamsCount] = useState(0);
 
+    const getBackendUrl = () => {
+        return (import.meta.env && import.meta.env.VITE_BACKEND_URL) || 'http://localhost:5000';
+    };
+
     useEffect(() => {
         checkExistingSchedule();
     }, []);
 
     const checkExistingSchedule = async () => {
         try {
-            const backendUrl = import.meta.env?.VITE_BACKEND_URL || 'http://localhost:5000';
-            const res = await fetch(`${backendUrl}/api/admin/stats`);
+            const res = await fetch(`${getBackendUrl()}/api/admin/stats`);
             if (res.ok) {
                 const data = await res.json();
                 setExistingExamsCount(data.total_exams || 0);
@@ -49,8 +52,7 @@ export default function AdminScheduleGenerator() {
         
         setIsLoading(true);
         try {
-            const backendUrl = import.meta.env?.VITE_BACKEND_URL || 'http://localhost:5000';
-            const res = await fetch(`${backendUrl}/api/admin/schedule/clear`, { method: 'DELETE' });
+            const res = await fetch(`${getBackendUrl()}/api/admin/schedule/clear`, { method: 'DELETE' });
             if (res.ok) {
                 setExistingExamsCount(0);
                 alert('Published schedule cleared successfully!');
@@ -64,8 +66,7 @@ export default function AdminScheduleGenerator() {
         }
     };
 
-    // Form States
-    const [dataSource, setDataSource] = useState('standard'); // 'standard' or 'sheet'
+    const [dataSource, setDataSource] = useState('standard');
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
     const [slots, setSlots] = useState([
@@ -73,7 +74,6 @@ export default function AdminScheduleGenerator() {
         { id: '2', name: 'Evening', startTime: '14:00', endTime: '17:00' }
     ]);
 
-    // Generated Results State
     const [generatedSchedule, setGeneratedSchedule] = useState([]);
     const [clashes, setClashes] = useState([]);
     const [showDownload, setShowDownload] = useState(false);
@@ -90,36 +90,38 @@ export default function AdminScheduleGenerator() {
         setStep(1); setGeneratedSchedule([]); setClashes([]); setSuccessMsg(null); setError(null);
     };
 
-    const generateFromSheet = async (startD, endD, activeSlots, backendUrl) => {
+    const generateFromSheet = async (startD, endD, activeSlots) => {
+        const backendUrl = getBackendUrl();
         const [reqRes, ttRes, coursesRes] = await Promise.all([
             fetch(`${backendUrl}/api/exam-requirements`),
             fetch(`${backendUrl}/api/admin/timetables`),
             fetch(`${backendUrl}/api/admin/courses`)
         ]);
+        
+        if (!reqRes.ok || !ttRes.ok || !coursesRes.ok) {
+            throw new Error(`Data fetch failed. Req: ${reqRes.status}, TT: ${ttRes.status}, Courses: ${coursesRes.status}`);
+        }
+
         const reqs = await reqRes.json();
         const allTimetables = await ttRes.json();
         const allCourses = await coursesRes.json();
 
-        // Only schedule rows flagged as conducted via committee
         const validReqs = reqs.filter(r => r.is_conducted && r.is_conducted.toLowerCase() === 'yes');
-
         const getSemNumber = (semStr) => parseInt((String(semStr) || '').replace(/\D/g, ''), 10);
 
         const coursesToSchedule = validReqs.map(req => {
-            const matchedCourse = allCourses.find(c => c.course_code === req.course_code) || {};
-            
+            const matchedCourse = (Array.isArray(allCourses) ? allCourses : []).find(c => c.course_code === req.course_code) || {};
             let semNum = getSemNumber(req.semester);
             
             if (isNaN(semNum) && matchedCourse.taught_in && matchedCourse.taught_in.length > 0) {
                  semNum = getSemNumber(matchedCourse.taught_in[0].semester);
             }
 
-            let batches = allTimetables.filter(t => parseInt(t.semester, 10) === semNum).map(t => ({
+            let batches = (Array.isArray(allTimetables) ? allTimetables : []).filter(t => parseInt(t.semester, 10) === semNum).map(t => ({
                 timetable_id: t.id,
                 name: `${t.stream} - Sem ${t.semester} (${t.batch_year})`
             }));
             
-            // Fallback: If no strict timetables match, create a generic batch so it gets scheduled anyway.
             if (batches.length === 0) {
                  batches = [{
                      timetable_id: `generic-${req.course_code}`,
@@ -153,15 +155,14 @@ export default function AdminScheduleGenerator() {
         const batchSchedule = {}; 
 
         coursesToSchedule.forEach(course => {
-            // Remove the early return so it always attempts to schedule
             if (course.batches[0]?.timetable_id.startsWith('generic-')) {
                 clashes.push({ type: 'warning', message: `No active timetable found for ${course.course_code}. Assigned globally.`});
             }
 
             let assignedSlot = null;
-            // Native capability to parse "Complete Day" string directly from Sheet requirements
             const isFullDay = course.duration && course.duration.toLowerCase().includes('complete day');
             let slotsToConsider = availableSlots;
+            
             if (isFullDay) {
                 slotsToConsider = availableSlots.filter(s => {
                     const sH = parseInt(s.startTime.split(':')[0], 10);
@@ -253,10 +254,9 @@ export default function AdminScheduleGenerator() {
         if (slots.length === 0) { setError('Please configure at least one time slot.'); return; }
 
         setIsLoading(true); setError(null); setSuccessMsg(null);
+        const backendUrl = getBackendUrl();
 
         try {
-            const backendUrl = import.meta.env?.VITE_BACKEND_URL || 'http://localhost:5000';
-            
             if (dataSource === 'standard') {
                 const response = await fetch(`${backendUrl}/api/admin/schedule/generate-preview`, {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -269,58 +269,54 @@ export default function AdminScheduleGenerator() {
                     setStep(2);
                 } else { setError(data.error || 'Failed to generate schedule.'); }
             } else {
-                // Generate from Sheet
-                const { schedule, clashes } = await generateFromSheet(startDate, endDate, slots, backendUrl);
+                const { schedule, clashes } = await generateFromSheet(startDate, endDate, slots);
                 setGeneratedSchedule(schedule || []);
                 setClashes(clashes || []);
                 setStep(2);
             }
-        } catch (err) { setError('Server connection failed or generation error.'); console.error(err); } 
+        } catch (err) { 
+            setError(`Server connection failed or generation error: ${err.message}`); 
+            console.error(err); 
+        } 
         finally { setIsLoading(false); }
     };
 
-    const handleCommit = async () => {
-        setIsLoading(true); setError(null);
-        try {
-            const backendUrl = import.meta.env?.VITE_BACKEND_URL || 'http://localhost:5000';
-            const response = await fetch(`${backendUrl}/api/admin/schedule/commit-generated`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ schedule: generatedSchedule })
-            });
-            const data = await response.json();
-            if (response.ok) {
-                setSuccessMsg('Schedule successfully finalized and saved to the database. It is now available for Invigilator Assignment.');
-                setExistingExamsCount(generatedSchedule.length);
-                setStep(3);
-            } else { setError(data.error || 'Failed to commit schedule.'); }
-        } catch (err) { setError('Server connection failed. Could not save.'); } 
-        finally { setIsLoading(false); }
-    };
-
-    const performAllocation = async () => {
-        const backendUrl = import.meta.env?.VITE_BACKEND_URL || 'http://localhost:5000';
+    const performAllocation = async (baseSchedule) => {
+        const backendUrl = getBackendUrl();
         
         const [studentsRes, timetablesRes, roomsRes, structuresRes] = await Promise.all([
             fetch(`${backendUrl}/api/admin/students`), fetch(`${backendUrl}/api/admin/timetables`),
             fetch(`${backendUrl}/api/admin/rooms`), fetch(`${backendUrl}/api/admin/room-structures`)
         ]);
 
-        if (!studentsRes.ok || !timetablesRes.ok || !roomsRes.ok || !structuresRes.ok) throw new Error("Failed fetching allocation data.");
+        if (!studentsRes.ok || !timetablesRes.ok || !roomsRes.ok || !structuresRes.ok) {
+            const errDetails = [];
+            if (!studentsRes.ok) errDetails.push(`Students API (${studentsRes.status})`);
+            if (!timetablesRes.ok) errDetails.push(`Timetables API (${timetablesRes.status})`);
+            if (!roomsRes.ok) errDetails.push(`Rooms API (${roomsRes.status})`);
+            if (!structuresRes.ok) errDetails.push(`Structures API (${structuresRes.status})`);
+            throw new Error(`Data fetch failed: ${errDetails.join(', ')}. Ensure endpoints exist and DB is accessible.`);
+        }
 
-        const allStudents = await studentsRes.json();
-        const allTimetables = await timetablesRes.json();
-        const allRooms = await roomsRes.json();
-        const allStructures = await structuresRes.json();
+        const studentsData = await studentsRes.json();
+        const timetablesData = await timetablesRes.json();
+        const roomsData = await roomsRes.json();
+        const structuresData = await structuresRes.json();
 
-        // Map Valid seats to Rooms
+        // Defensive checks to ensure they are arrays, preventing array method crashes
+        const allStudents = Array.isArray(studentsData) ? studentsData : [];
+        const allTimetables = Array.isArray(timetablesData) ? timetablesData : [];
+        const allRooms = Array.isArray(roomsData) ? roomsData : [];
+        const allStructures = Array.isArray(structuresData) ? structuresData : [];
+
         const roomsWithSeats = allRooms.map(r => ({
             ...r,
             seats: allStructures
-                .filter(s => s.room_id === r.id && s.is_usable) // only map usable seats
+                .filter(s => s.room_id === r.id && s.is_usable) 
                 .sort((a,b) => a.row_number - b.row_number || a.column_number - b.column_number)
-        })).filter(r => r.seats.length > 0);
+        })).filter(r => r.seats && r.seats.length > 0);
 
-        const sortedExams = [...generatedSchedule].sort((a, b) => {
+        const sortedExams = [...baseSchedule].sort((a, b) => {
             if (a.date !== b.date) return (a.date || '').localeCompare(b.date || '');
             return (a.startTime || '').localeCompare(b.startTime || '');
         });
@@ -351,8 +347,9 @@ export default function AdminScheduleGenerator() {
             });
         });
 
-        const studentExamRoomMap = {}; // Maps "regNo_examIdx" -> "roomName"
+        const studentExamRoomMap = {}; 
         const seatingPlansData = []; 
+        const generatedRoomsForExams = {};
 
         slotsMap.forEach((slotData, slotKey) => {
             const examQueuesMap = new Map();
@@ -381,36 +378,26 @@ export default function AdminScheduleGenerator() {
                 let currentRow = -1;
                 let prevExamCode = null;
 
-                // Seat assignment logic (with Column Gap / Interleave requirement and Lab/Room constraints)
                 for (const seat of room.seats) {
                     if (seat.row_number !== currentRow) {
                         currentRow = seat.row_number;
-                        prevExamCode = null; // Start fresh for a new row to allow same exam alignment vertically if needed
+                        prevExamCode = null; 
                     }
 
-                    examQueues = examQueues.filter(q => q.students.length > 0);
+                    examQueues = examQueues.filter(q => q.students && q.students.length > 0);
                     if (examQueues.length === 0) break;
                     examQueues.sort((a, b) => b.students.length - a.students.length);
 
                     let selectedQueue = null;
                     for (let i = 0; i < examQueues.length; i++) {
                         const q = examQueues[i];
-                        
-                        // Prevent students of the exact same exam from sitting left/right of each other
                         if (q.exam.course_code !== prevExamCode) {
-                            
-                            // Check Room Requirement Constraints assigned via remarks
                             const reqLab = q.exam.remark && q.exam.remark.includes('Room Request: Lab');
-                            
-                            // Updated Regex to match multiple rooms and map to array
                             const reqRoomMatch = q.exam.remark && q.exam.remark.match(/Room(?:s)?:\s*([A-Za-z0-9_,\s-]+)/);
                             const reqRooms = reqRoomMatch ? reqRoomMatch[1].split(',').map(r => r.trim()) : [];
 
                             let canPlace = true;
-                            
                             if (reqLab && room.room_type?.toLowerCase() !== 'lab') canPlace = false;
-                            
-                            // If explicit rooms are requested, this room MUST be one of them
                             if (reqRooms.length > 0 && !reqRooms.includes(room.room_name)) canPlace = false;
 
                             if (canPlace) {
@@ -424,9 +411,14 @@ export default function AdminScheduleGenerator() {
                         const item = selectedQueue.students.shift();
                         currentRoomSeating.allocations.push({ seat, student: item.student, exam: item.exam });
                         studentExamRoomMap[`${item.student.registration_no}_${selectedQueue.examIdx}`] = room.room_name;
+                        
+                        if(!generatedRoomsForExams[selectedQueue.exam.course_code]) {
+                            generatedRoomsForExams[selectedQueue.exam.course_code] = new Set();
+                        }
+                        generatedRoomsForExams[selectedQueue.exam.course_code].add(room.room_name);
+
                         prevExamCode = selectedQueue.exam.course_code;
                     } else {
-                        // Empty gap left intentionally, so next iteration the original exam can be seated again
                         prevExamCode = 'EMPTY';
                     }
                 }
@@ -435,7 +427,6 @@ export default function AdminScheduleGenerator() {
                 currentRoomIdx++;
             }
 
-            // Unallocated fallbacks
             examQueues.forEach(q => {
                 q.students.forEach(item => { studentExamRoomMap[`${item.student.registration_no}_${q.examIdx}`] = 'TBA'; });
             });
@@ -452,8 +443,65 @@ export default function AdminScheduleGenerator() {
 
         return { 
             sortedExams, involvedStudents: Array.from(involvedStudentsMap.values()), 
-            studentExamRoomMap, seatingPlansData 
+            studentExamRoomMap, seatingPlansData, generatedRoomsForExams 
         };
+    };
+
+    const handleCommit = async () => {
+        setIsLoading(true); setError(null);
+        try {
+            const allocationResults = await performAllocation(generatedSchedule);
+            const backendUrl = getBackendUrl();
+
+            const enrichedSchedule = [];
+            
+            generatedSchedule.forEach(exam => {
+                // Keep the payload small by sending only what the DB actually needs
+                const slimExam = {
+                    course_id: exam.course_id,
+                    course_code: exam.course_code,
+                    date: exam.date,
+                    startTime: exam.startTime,
+                    endTime: exam.endTime,
+                    batches: exam.batches.map(b => ({ timetable_id: b.timetable_id, name: b.name }))
+                };
+
+                const assignedRoomsSet = allocationResults.generatedRoomsForExams[exam.course_code];
+                if (assignedRoomsSet && assignedRoomsSet.size > 0) {
+                    Array.from(assignedRoomsSet).forEach(roomName => {
+                        enrichedSchedule.push({ ...slimExam, assignedRoom: roomName });
+                    });
+                } else {
+                    enrichedSchedule.push({ ...slimExam, assignedRoom: 'TBA' });
+                }
+            });
+
+            const response = await fetch(`${backendUrl}/api/admin/schedule/commit-generated`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ schedule: enrichedSchedule })
+            });
+
+            let data;
+            const contentType = response.headers.get("content-type");
+            if (contentType && contentType.indexOf("application/json") !== -1) {
+                data = await response.json();
+            } else {
+                const text = await response.text();
+                throw new Error(`Server returned unexpected response (status ${response.status}): ${text.substring(0, 100)}...`);
+            }
+
+            if (response.ok) {
+                setSuccessMsg('Schedule successfully finalized and saved to the database. It is now available for Invigilator Assignment.');
+                setExistingExamsCount(enrichedSchedule.length);
+                setStep(3);
+            } else { 
+                throw new Error(data.error || 'Failed to commit schedule on the server side.'); 
+            }
+        } catch (err) { 
+            console.error(err);
+            setError(`Could not save allocations: ${err.message}`); 
+        } 
+        finally { setIsLoading(false); }
     };
 
     const handleDownload = async (format) => {
@@ -466,7 +514,6 @@ export default function AdminScheduleGenerator() {
         if (format === 'xlsx-datesheet') {
             setIsExporting(true);
             try {
-                // Parse schedule grouping by Year
                 const batchMap = new Map();
                 generatedSchedule.forEach(exam => {
                     const processedYears = new Set();
@@ -481,7 +528,7 @@ export default function AdminScheduleGenerator() {
                     });
                 });
 
-                const sortedYears = Array.from(batchMap.keys()).sort((a,b) => a.localeCompare(b)); // e.g. 2023, 2024...
+                const sortedYears = Array.from(batchMap.keys()).sort((a,b) => a.localeCompare(b)); 
                 
                 const formatDatesheetDate = (dateStr) => {
                     if (!dateStr) return '';
@@ -492,9 +539,9 @@ export default function AdminScheduleGenerator() {
                 const getSlotIndicator = (startTime) => {
                     if (!startTime) return '';
                     const hour = parseInt(startTime.split(':')[0], 10);
-                    if (hour < 12) return 'M'; // Morning
-                    if (hour < 16) return 'A'; // Afternoon
-                    return 'E'; // Evening
+                    if (hour < 12) return 'M'; 
+                    if (hour < 16) return 'A'; 
+                    return 'E'; 
                 };
 
                 const aoa = [];
@@ -520,18 +567,15 @@ export default function AdminScheduleGenerator() {
                         return (a.startTime || '').localeCompare(b.startTime || '');
                     });
 
-                    // Add Batch Header
                     aoa.push([`BATCH ${year}`, "", "", ""]);
                     merges.push({ s: {r: rowIndex, c:0}, e: {r: rowIndex, c:3} });
                     styleMap.push({ r: rowIndex, type: 'batchHeader', color: BATCH_COLORS[yIdx % BATCH_COLORS.length] });
                     rowIndex++;
 
-                    // Add Column Headers
                     aoa.push(["COURSE CODE", "COURSE", "DATE", "SLOT"]);
                     styleMap.push({ r: rowIndex, type: 'tableHeader' });
                     rowIndex++;
 
-                    // Add Data
                     exams.forEach(exam => {
                         aoa.push([
                             exam.course_code,
@@ -550,12 +594,10 @@ export default function AdminScheduleGenerator() {
                 const ws = XLSX.utils.aoa_to_sheet(aoa);
                 ws['!merges'] = merges;
                 
-                // Titles Styling
                 ensureCell(ws, 0,0).s = { font: { bold: true, sz: 14, name: 'Calibri' }, alignment: { horizontal: 'center' } };
                 ensureCell(ws, 1,0).s = { font: { bold: true, sz: 12, name: 'Calibri' }, alignment: { horizontal: 'center' } };
                 ensureCell(ws, 2,0).s = { font: { bold: true, sz: 11, name: 'Calibri' }, alignment: { horizontal: 'center' } };
 
-                // Row Styling
                 styleMap.forEach(st => {
                     if (st.type === 'batchHeader') {
                         const cell = ensureCell(ws, st.r, 0);
@@ -599,7 +641,7 @@ export default function AdminScheduleGenerator() {
         } else {
             setIsExporting(true);
             try {
-                const { sortedExams, involvedStudents, studentExamRoomMap, seatingPlansData } = await performAllocation();
+                const { sortedExams, involvedStudents, studentExamRoomMap, seatingPlansData } = await performAllocation(generatedSchedule);
 
                 const formatExamDate = (dateStr) => { if (!dateStr) return ''; const parts = dateStr.split('-'); return parts.length === 3 ? `${parts[2]}.${parts[1]}.${parts[0]}` : dateStr; };
                 const formatExamDay = (dateStr) => { if (!dateStr) return ''; const parts = dateStr.split('-'); return parts.length === 3 ? new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])).toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase() : ''; };
@@ -607,14 +649,12 @@ export default function AdminScheduleGenerator() {
                 const workbook = XLSX.utils.book_new();
 
                 if (format === 'xlsx-master') {
-                    // Group students strictly by their Stream + Batch Year to completely unmix them
                     const batchGroups = new Map();
                     
                     involvedStudents.forEach(student => {
                         const yearPrefix = student.registration_no ? student.registration_no.substring(0, 2) : 'XX';
                         let stream = (student.stream || 'Unknown').toUpperCase().trim();
                         
-                        // Clean up stream names so grouping stays consistent
                         if (stream.includes('CSE') || stream.includes('COMPUTER')) stream = 'CSE';
                         else if (stream.includes('MECH') || stream === 'ME') stream = 'ME';
                         else if (stream.includes('ECOM') || stream.includes('ELECTRONICS')) stream = 'ECOM';
@@ -631,8 +671,6 @@ export default function AdminScheduleGenerator() {
                         const studentsInBatch = batchGroups.get(batchName);
                         studentsInBatch.sort((a, b) => (a.registration_no || '').localeCompare(b.registration_no || ''));
 
-                        // Filter exams to ONLY those where students in THIS stream+batch are actually placed
-                        // This prevents Mechanical exams from showing up in CSE sheets, etc.
                         const batchExams = [];
                         sortedExams.forEach((exam, examIdx) => {
                             const hasStudentsInBatch = studentsInBatch.some(s => !!studentExamRoomMap[`${s.registration_no}_${examIdx}`]);
@@ -641,7 +679,6 @@ export default function AdminScheduleGenerator() {
                             }
                         });
 
-                        // If no exams apply to this specific batch segment, skip creating a sheet
                         if (batchExams.length === 0) return;
 
                         const row1 = ["", "", "", "DATE OF EXAM"]; 
@@ -668,7 +705,6 @@ export default function AdminScheduleGenerator() {
 
                         const worksheet = XLSX.utils.aoa_to_sheet(aoaData);
 
-                        // Style Headers
                         for (let r = 0; r <= 2; r++) ensureCell(worksheet, r, 3).s = { font: { bold: true, sz: 10, name: 'Calibri' }, alignment: { horizontal: 'right', vertical: 'center' }, border: borderBlack };
                         for (let c = 0; c <= 3; c++) ensureCell(worksheet, 3, c).s = { font: { bold: true, sz: 10, name: 'Calibri' }, alignment: { horizontal: 'center', vertical: 'center' }, border: borderBlack };
 
@@ -700,7 +736,6 @@ export default function AdminScheduleGenerator() {
                         batchExams.forEach(() => colWidths.push({ wch: 25 }));
                         worksheet['!cols'] = colWidths;
 
-                        // Ensure Excel sheet name limitations (max 31 chars, no special chars)
                         let safeSheetName = batchName.substring(0, 31).replace(/[/\\?*:[\]]/g, '_');
                         XLSX.utils.book_append_sheet(workbook, worksheet, safeSheetName);
                     });
