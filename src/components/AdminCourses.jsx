@@ -94,7 +94,9 @@ export default function AdminCourses() {
       const res = await fetch(`${backendUrl}/api/admin/courses`);
       if (res.ok) {
         const data = await res.json();
-        setCourses(data);
+        // Ensure taught_in is always an array to prevent leakage crashes down the line
+        const sanitizedData = Array.isArray(data) ? data.map(c => ({...c, taught_in: c.taught_in || []})) : [];
+        setCourses(sanitizedData);
       }
     } catch (err) {
       console.error("Failed to fetch courses:", err);
@@ -217,10 +219,10 @@ export default function AdminCourses() {
     setEditingId(null);
   };
 
-  // Extract unique filter options
+  // Extract unique filter options safely avoiding nulls/undefined properties
   const availableTypes = [...new Set(courses.map(c => c.course_type).filter(Boolean))].sort();
   const availableCredits = [...new Set(courses.map(c => c.credits).filter(Boolean))].sort((a, b) => parseFloat(a) - parseFloat(b));
-  const availableSemesters = [...new Set(courses.flatMap(c => c.taught_in.map(t => t.semester)).filter(Boolean))].sort();
+  const availableSemesters = [...new Set(courses.flatMap(c => (c.taught_in || []).map(t => t.semester)).filter(Boolean))].sort();
 
   const toggleFilter = (setter, value) => {
     setter(prev => prev.includes(value) ? prev.filter(item => item !== value) : [...prev, value]);
@@ -430,7 +432,7 @@ export default function AdminCourses() {
     }
 
     const confirmMsg = `Merge ${duplicateIds.length} duplicate course(s) into:\n` +
-      `• Primary: [${primaryCourse.course_code || 'No Code'}] ${primaryCourse.course_title} (ID: ${primaryCourse.id})\n\n` +
+      `• Primary: [${primaryCourse.course_code || 'No Code'}] ${primaryCourse.course_title || 'Untitled Course'} (ID: ${primaryCourse.id})\n\n` +
       `Course details will be consolidated into the primary course and redundant entries will be removed. Proceed?`;
 
     if (!window.confirm(confirmMsg)) return;
@@ -502,13 +504,17 @@ export default function AdminCourses() {
 
   const filteredCourses = useMemo(() => {
     let list = courses.filter(course => {
-      const matchesSearch = course.course_title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                            (course.course_code && course.course_code.toLowerCase().includes(searchQuery.toLowerCase()));
+      // Safely access properties to prevent null crashes
+      const safeTitle = (course.course_title || '').toLowerCase();
+      const safeCode = (course.course_code || '').toLowerCase();
+      const searchLower = (searchQuery || '').toLowerCase();
+
+      const matchesSearch = safeTitle.includes(searchLower) || safeCode.includes(searchLower);
       
       const matchesType = selectedTypes.length === 0 || selectedTypes.includes(course.course_type);
       const matchesCredit = selectedCredits.length === 0 || selectedCredits.includes(course.credits);
       
-      const courseSems = course.taught_in.map(t => t.semester).filter(Boolean);
+      const courseSems = (course.taught_in || []).map(t => t.semester).filter(Boolean);
       const matchesSem = selectedSemesters.length === 0 || selectedSemesters.some(sem => courseSems.includes(sem));
 
       return matchesSearch && matchesType && matchesCredit && matchesSem;
@@ -546,16 +552,16 @@ export default function AdminCourses() {
     }
 
     const exportData = filteredCourses.map(c => {
-      const semesters = [...new Set(c.taught_in.map(t => t.semester).filter(Boolean))].sort().join(', ');
+      const semesters = [...new Set((c.taught_in || []).map(t => t.semester).filter(Boolean))].sort().join(', ');
       return {
-        "Course Code": c.course_code,
-        "Abbreviation": c.abbreviation,
-        "Course Title": c.course_title,
-        "Category": c.category,
-        "Type": c.course_type,
-        "Exam Structure": c.exam_type,
+        "Course Code": c.course_code || '',
+        "Abbreviation": c.abbreviation || '',
+        "Course Title": c.course_title || '',
+        "Category": c.category || '',
+        "Type": c.course_type || '',
+        "Exam Structure": c.exam_type || '',
         "Credits": c.credits ? parseFloat(c.credits) : '',
-        "LDP": c.ldp,
+        "LDP": c.ldp || '',
         "Semesters Taught": semesters || "Unassigned"
       };
     });
@@ -852,7 +858,8 @@ export default function AdminCourses() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               {filteredCourses.map((course) => {
-                const uniqueSemesters = [...new Set(course.taught_in.map(t => t.semester).filter(Boolean))].sort();
+                // Safeguard taught_in
+                const uniqueSemesters = [...new Set((course.taught_in || []).map(t => t.semester).filter(Boolean))].sort();
                 const dupInfo = courseDuplicateMap.get(course.id);
 
                 return (
@@ -914,7 +921,7 @@ export default function AdminCourses() {
                     </div>
                     
                     <h3 className="text-base font-bold text-slate-900 dark:text-white line-clamp-2 mb-2 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
-                      {course.course_title}
+                      {course.course_title || 'Untitled Course'}
                     </h3>
                     
                     <div className="mt-auto pt-4 flex flex-col gap-2">
@@ -983,7 +990,7 @@ export default function AdminCourses() {
                   </span>
                 </div>
                 <h3 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white leading-tight">
-                  {selectedCourse.course_title}
+                  {selectedCourse.course_title || 'Untitled Course'}
                 </h3>
               </div>
               <button onClick={closeDetails} className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-xl hover:bg-slate-200 dark:hover:bg-white/10 transition-colors shrink-0 bg-white dark:bg-[#1a1a1a] shadow-sm border border-slate-200 dark:border-white/10">
@@ -1005,19 +1012,19 @@ export default function AdminCourses() {
                   <div className="grid grid-cols-2 gap-4 bg-slate-50 dark:bg-[#1a1a1a] p-4 rounded-xl border border-slate-200 dark:border-white/5">
                     <div>
                       <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Category</p>
-                      <p className="text-sm text-slate-900 dark:text-white font-medium">{courseDetails.course.category || 'N/A'}</p>
+                      <p className="text-sm text-slate-900 dark:text-white font-medium">{courseDetails.course?.category || 'N/A'}</p>
                     </div>
                     <div>
                       <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Type</p>
-                      <p className="text-sm text-slate-900 dark:text-white font-medium capitalize">{courseDetails.course.course_type || 'Regular'}</p>
+                      <p className="text-sm text-slate-900 dark:text-white font-medium capitalize">{courseDetails.course?.course_type || 'Regular'}</p>
                     </div>
                     <div>
                       <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Exam Structure</p>
                       <p className="text-sm text-slate-900 dark:text-white font-medium capitalize">
-                          {courseDetails.course.exam_type === 'project' ? 'Project-Based (Evaluated Before Exams)' : courseDetails.course.exam_type === 'enrichment' ? 'Enrichment (No Exams)' : 'Standard Exam Schedule'}
+                          {courseDetails.course?.exam_type === 'project' ? 'Project-Based (Evaluated Before Exams)' : courseDetails.course?.exam_type === 'enrichment' ? 'Enrichment (No Exams)' : 'Standard Exam Schedule'}
                       </p>
                     </div>
-                    {courseDetails.course.ldp && (
+                    {courseDetails.course?.ldp && (
                       <div className="col-span-2 border-t border-slate-200 dark:border-white/10 pt-3 mt-1">
                         <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">LDP (Lecture-Demo-Pract)</p>
                         <p className="text-sm text-slate-900 dark:text-white font-medium">{courseDetails.course.ldp}</p>
@@ -1032,7 +1039,7 @@ export default function AdminCourses() {
                       Assigned Faculty & Classes
                     </h4>
                     
-                    {courseDetails.teachers.length === 0 ? (
+                    {(!courseDetails.teachers || courseDetails.teachers.length === 0) ? (
                       <div className="text-center py-8 border border-dashed border-slate-200 dark:border-white/10 rounded-xl bg-slate-50/50 dark:bg-white/[0.01]">
                         <UserCheck className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-600 mb-2" />
                         <p className="text-sm text-slate-500 dark:text-slate-400">No faculty currently assigned to this course.</p>
@@ -1056,7 +1063,7 @@ export default function AdminCourses() {
                                 <Calendar className="w-3 h-3 mr-1" /> Classes Taught
                               </p>
                               <div className="flex flex-wrap gap-1.5">
-                                {teacher.classes.map((cls, cIdx) => (
+                                {(teacher.classes || []).map((cls, cIdx) => (
                                   <span key={cIdx} className="inline-flex items-center px-2 py-1 rounded bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/5 text-[11px] font-medium text-slate-700 dark:text-slate-300">
                                     {cls}
                                   </span>
@@ -1259,7 +1266,7 @@ export default function AdminCourses() {
             </div>
             <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2">Delete Course?</h3>
             <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
-              Are you sure you want to remove <span className="font-semibold text-slate-700 dark:text-slate-200">{courseToDelete?.course_title}</span>? This will remove it from all timetables. This action cannot be undone.
+              Are you sure you want to remove <span className="font-semibold text-slate-700 dark:text-slate-200">{courseToDelete?.course_title || 'this course'}</span>? This will remove it from all timetables. This action cannot be undone.
             </p>
             
             {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
@@ -1475,7 +1482,7 @@ export default function AdminCourses() {
                                       </div>
 
                                       <p className="font-bold text-sm text-slate-900 dark:text-white line-clamp-2">
-                                        {c.course_title}
+                                        {c.course_title || 'Untitled Course'}
                                       </p>
 
                                       <div className="flex flex-wrap gap-1 text-[10px]">
@@ -1536,7 +1543,7 @@ export default function AdminCourses() {
                           {/* Group Footer Summary */}
                           <div className="px-4 py-2.5 bg-slate-50 dark:bg-white/[0.02] border-t border-slate-100 dark:border-white/5 text-xs text-slate-600 dark:text-slate-400 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
                             <span>
-                              Result after merge: Primary course <strong>[{primaryCourse.course_code || 'No Code'}] {primaryCourse.course_title}</strong> will be retained.
+                              Result after merge: Primary course <strong>[{primaryCourse.course_code || 'No Code'}] {primaryCourse.course_title || 'Untitled Course'}</strong> will be retained.
                             </span>
                             <span className="text-[11px] text-slate-400">
                               {group.courses.length - 1} redundant record{group.courses.length - 1 !== 1 ? 's' : ''} will be deleted.
