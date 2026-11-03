@@ -52,23 +52,21 @@ export default function ExamScheduleAssigner() {
       return hours * 60 + mins;
   };
 
-  // Robust date extractor to prevent timezone shift issues or Invalid Date fallback collisions
-  const getSafeDate = (d) => {
-      if (!d) return '';
-      const dStr = String(d).trim();
-      if (dStr.match(/^\d{4}-\d{2}-\d{2}/)) return dStr.substring(0, 10);
-      
-      const dt = new Date(d);
-      if (isNaN(dt.getTime())) return dStr.toLowerCase(); // Prevents "NaN" collisions for raw strings like "Monday"
-      return `${dt.getFullYear()}-${dt.getMonth()}-${dt.getDate()}`;
+  // Helper: Classify time into general shifts to prevent contiguous double bookings
+  const getShift = (timeStr) => {
+      const mins = timeToMins(timeStr);
+      const hour = Math.floor(mins / 60);
+      if (hour < 12) return 'M';
+      if (hour < 15) return 'A';
+      return 'E';
   };
 
-  // Format Date and Time into '5M', '6E', '9A' format safely avoiding timezone shifts
+  // Format Date and Time safely avoiding timezone shifts
   const formatSlotKey = (dateStr, timeStr) => {
     if (!dateStr || !timeStr) return '';
     
     let day;
-    const dStr = String(dateStr);
+    const dStr = String(dateStr).trim();
     if (dStr.match(/^\d{4}-\d{2}-\d{2}/)) {
         day = parseInt(dStr.substring(8, 10), 10);
     } else {
@@ -77,12 +75,7 @@ export default function ExamScheduleAssigner() {
         else day = dStr.substring(0, 3).toUpperCase();
     }
     
-    const timeMins = timeToMins(timeStr);
-    const hour = Math.floor(timeMins / 60);
-    
-    let shift = 'M';
-    if (hour >= 12 && hour < 15) shift = 'A';
-    if (hour >= 15) shift = 'E';
+    const shift = getShift(timeStr);
     return `${day}${shift}`;
   };
 
@@ -137,7 +130,12 @@ export default function ExamScheduleAssigner() {
           roomList.forEach(singleRoom => {
               const exam = { ...rawExam, room: singleRoom };
               const assignedRoom = (singleRoom === 'TBA') ? `Room TBA (${exam.course_code})` : singleRoom;
-              const key = `${exam.date}_${exam.start_time}_${assignedRoom}`;
+              
+              // Normalize strings to prevent mismatch splits
+              const safeDate = String(exam.date || '').trim().toLowerCase();
+              const safeTime = String(exam.start_time || '').trim().toLowerCase();
+              
+              const key = `${safeDate}_${safeTime}_${assignedRoom}`;
               
               if (!roomSessions.has(key)) {
                 roomSessions.set(key, {
@@ -163,20 +161,28 @@ export default function ExamScheduleAssigner() {
 
         const sessionsArray = Array.from(roomSessions.values());
 
-        // STRICT TIME OVERLAP CHECKER: Ensures a teacher cannot be in 2 rooms at the same time
+        // STRICT LOCKOUT CHECKER: Prevents teachers from double booking via Minutes AND Shifts
         const isTeacherBusy = (teacher, session) => {
-            const sessDate = getSafeDate(session.date);
+            const sessDate = String(session.date || '').trim().toLowerCase();
+            const sStart = timeToMins(session.startTime);
+            const sEnd = timeToMins(session.endTime) || (sStart + 180);
+            const sShift = getShift(session.startTime);
             
             return teacher.assignedSlots.some(slot => {
-                if (getSafeDate(slot.date) !== sessDate) return false; // Different day, not busy
+                const slotDate = String(slot.date || '').trim().toLowerCase();
+                if (slotDate !== sessDate) return false; // Different day, they are not busy
                 
-                const sStart = timeToMins(session.startTime);
-                const sEnd = timeToMins(session.endTime) || (sStart + 180); // Default 3h buffer if missing
                 const slotStart = timeToMins(slot.startTime);
                 const slotEnd = timeToMins(slot.endTime) || (slotStart + 180);
+                const slotShift = getShift(slot.startTime);
                 
-                // Mathematical Overlap check: Start A < End B AND Start B < End A
-                return (sStart < slotEnd && slotStart < sEnd);
+                // 1. Minute-by-minute overlap: Start A < End B AND Start B < End A
+                const isOverlapping = (sStart < slotEnd && slotStart < sEnd);
+                
+                // 2. Same shift check: Prevents assigning two exams in the same half-day (Morning/Afternoon)
+                const isSameShift = (sShift === slotShift);
+                
+                return isOverlapping || isSameShift;
             });
         };
 
@@ -285,112 +291,128 @@ export default function ExamScheduleAssigner() {
     }, 800);
   };
 
-  const exportExcel = () => {
+const exportExcel = () => {
     if (!assignments) return;
     
-    const wb = XLSX.utils.book_new();
-    const { trackers, sessions } = assignments;
+    try {
+      const wb = XLSX.utils.book_new();
+      const { trackers, sessions } = assignments;
 
-    // 1. Faculty Sheet (Widened columns for longer duty strings with rooms)
-    const facultyData = trackers.filter(t => t.isFaculty && t.totalDuties > 0).sort((a,b) => a.full_name.localeCompare(b.full_name));
-    const facultyAoA = [
-      ["Faculty Name", "Own Exam", "Own Exam", "Own Exam", "Other Exam", "Other Exam", "Other Exam"]
-    ];
-    facultyData.forEach(f => {
-      facultyAoA.push([
-        f.full_name,
-        f.ownDuties[0] || '', f.ownDuties[1] || '', f.ownDuties[2] || '',
-        f.otherDuties[0] || '', f.otherDuties[1] || '', f.otherDuties[2] || ''
-      ]);
-    });
-    const wsFaculty = XLSX.utils.aoa_to_sheet(facultyAoA);
-    wsFaculty['!cols'] = [{ wch: 30 }, { wch: 22 }, { wch: 22 }, { wch: 22 }, { wch: 22 }, { wch: 22 }, { wch: 22 }];
-    XLSX.utils.book_append_sheet(wb, wsFaculty, "Faculty Duties");
-
-    // 2. Lab Staff Sheet
-    const labData = trackers.filter(t => t.isLab && t.totalDuties > 0);
-    const labAoA = [["S.No.", "Lab Staff Name", "Duties"]];
-    labData.forEach((l, idx) => {
-      const allDuties = [...l.ownDuties, ...l.otherDuties].join(' | ');
-      labAoA.push([idx + 1, l.full_name, allDuties]);
-    });
-    const wsLab = XLSX.utils.aoa_to_sheet(labAoA);
-    wsLab['!cols'] = [{ wch: 8 }, { wch: 25 }, { wch: 45 }];
-    XLSX.utils.book_append_sheet(wb, wsLab, "Lab Staff");
-
-    // 3. PhD Scholars Sheet
-    const phdData = trackers.filter(t => t.isPhD && t.totalDuties > 0);
-    const phdAoA = [["S.No.", "Name", "School", "Duties"]];
-    phdData.forEach((p, idx) => {
-      const allDuties = [...p.ownDuties, ...p.otherDuties].join(' | ');
-      phdAoA.push([idx + 1, p.full_name, "SOET", allDuties]);
-    });
-    const wsPhd = XLSX.utils.aoa_to_sheet(phdAoA);
-    wsPhd['!cols'] = [{ wch: 8 }, { wch: 25 }, { wch: 15 }, { wch: 45 }];
-    XLSX.utils.book_append_sheet(wb, wsPhd, "PhD Scholars");
-
-    // 4. Datesheets (Grouped by Date and Slot)
-    const groupedByTime = {};
-    sessions.forEach(s => {
-      const timeKey = `${s.date}_${s.startTime}`;
-      if (!groupedByTime[timeKey]) groupedByTime[timeKey] = [];
-      groupedByTime[timeKey].push(s);
-    });
-
-    Object.entries(groupedByTime).forEach(([timeKey, sList], idx) => {
-      const dObj = new Date(sList[0].date);
-      const dateStr = dObj.toLocaleDateString('en-GB'); 
-      const dayStr = dObj.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase();
-      const h = parseInt(sList[0].startTime.split(':')[0], 10);
-      const shift = h < 12 ? 'MORNING' : h < 15 ? 'AFTERNOON' : 'EVENING';
-
-      const sheetName = `${dObj.getDate()}_${shift}`.substring(0,31);
-      
-      const aoa = [];
-      aoa.push(["BML MUNJAL UNIVERSITY"]);
-      aoa.push(["(SoET Examination)"]);
-      aoa.push(["MID TERM EXAMINATIONS"]);
-      aoa.push([`Date - ${dateStr} (${dayStr}) ${shift}`]);
-      aoa.push([]);
-      
-      const headerRow = [
-        "S#", "Batch", "Course Code", "Course Title", "Room No.", 
-        "Invigilators Name", "Time", "Signature", 
-        "Booklets Issued (M)", "Booklets Issued (S)", 
-        "Booklets Returned (M)", "Booklets Returned (S)", 
-        "Signature", "USED", "UNUSED"
+      // 1. Faculty Sheet (Widened columns for longer duty strings with rooms)
+      const facultyData = trackers.filter(t => t.isFaculty && t.totalDuties > 0).sort((a,b) => a.full_name.localeCompare(b.full_name));
+      const facultyAoA = [
+        ["Faculty Name", "Own Exam", "Own Exam", "Own Exam", "Other Exam", "Other Exam", "Other Exam"]
       ];
-      aoa.push(headerRow);
+      facultyData.forEach(f => {
+        facultyAoA.push([
+          f.full_name,
+          f.ownDuties[0] || '', f.ownDuties[1] || '', f.ownDuties[2] || '',
+          f.otherDuties[0] || '', f.otherDuties[1] || '', f.otherDuties[2] || ''
+        ]);
+      });
+      const wsFaculty = XLSX.utils.aoa_to_sheet(facultyAoA);
+      wsFaculty['!cols'] = [{ wch: 30 }, { wch: 22 }, { wch: 22 }, { wch: 22 }, { wch: 22 }, { wch: 22 }, { wch: 22 }];
+      XLSX.utils.book_append_sheet(wb, wsFaculty, "Faculty Duties");
 
-      let rowNum = 1;
-      sList.forEach(session => {
-        session.rawExams.forEach(exam => {
-          aoa.push([
-            rowNum++,
-            exam.stream === 'GENERIC' ? 'Global / Common' : `${exam.stream} Sem ${exam.semester}`,
-            exam.course_code,
-            exam.course_title,
-            session.room,
-            session.invigilator ? session.invigilator.name : 'TBA',
-            `${session.startTime} - ${session.endTime}`,
-            "", "", "", "", "", "", "", ""
-          ]);
-        });
+      // 2. Lab Staff Sheet
+      const labData = trackers.filter(t => t.isLab && t.totalDuties > 0);
+      const labAoA = [["S.No.", "Lab Staff Name", "Duties"]];
+      labData.forEach((l, idx) => {
+        const allDuties = [...l.ownDuties, ...l.otherDuties].join(' | ');
+        labAoA.push([idx + 1, l.full_name, allDuties]);
+      });
+      const wsLab = XLSX.utils.aoa_to_sheet(labAoA);
+      wsLab['!cols'] = [{ wch: 8 }, { wch: 25 }, { wch: 45 }];
+      XLSX.utils.book_append_sheet(wb, wsLab, "Lab Staff");
+
+      // 3. PhD Scholars Sheet
+      const phdData = trackers.filter(t => t.isPhD && t.totalDuties > 0);
+      const phdAoA = [["S.No.", "Name", "School", "Duties"]];
+      phdData.forEach((p, idx) => {
+        const allDuties = [...p.ownDuties, ...p.otherDuties].join(' | ');
+        phdAoA.push([idx + 1, p.full_name, "SOET", allDuties]);
+      });
+      const wsPhd = XLSX.utils.aoa_to_sheet(phdAoA);
+      wsPhd['!cols'] = [{ wch: 8 }, { wch: 25 }, { wch: 15 }, { wch: 45 }];
+      XLSX.utils.book_append_sheet(wb, wsPhd, "PhD Scholars");
+
+      // 4. Datesheets (Grouped by Date and Slot)
+      const groupedByTime = {};
+      sessions.forEach(s => {
+        const timeKey = `${s.date}_${s.startTime}`;
+        if (!groupedByTime[timeKey]) groupedByTime[timeKey] = [];
+        groupedByTime[timeKey].push(s);
       });
 
-      const ws = XLSX.utils.aoa_to_sheet(aoa);
-      ws['!cols'] = [
-        { wch: 5 }, { wch: 15 }, { wch: 15 }, { wch: 35 }, { wch: 18 }, 
-        { wch: 25 }, { wch: 15 }, { wch: 12 }, { wch: 15 }, { wch: 15 },
-        { wch: 18 }, { wch: 18 }, { wch: 12 }, { wch: 10 }, { wch: 10 }
-      ];
+      Object.entries(groupedByTime).forEach(([timeKey, sList], idx) => {
+        const dObj = new Date(sList[0].date);
+        const isValidDate = !isNaN(dObj.getTime());
+        const dateStr = isValidDate ? dObj.toLocaleDateString('en-GB') : sList[0].date; 
+        const dayStr = isValidDate ? dObj.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase() : '';
+        
+        // Use timeToMins for accurate AM/PM parsing to avoid 12-hour format bugs
+        const mins = timeToMins(sList[0].startTime);
+        const h = Math.floor(mins / 60);
+        const shift = h < 12 ? 'MORNING' : h < 15 ? 'AFTERNOON' : 'EVENING';
 
-      ws['A1'].s = { font: { bold: true } };
-      
-      XLSX.utils.book_append_sheet(wb, ws, sheetName);
-    });
+        let datePrefix = isValidDate ? dObj.getDate() : String(sList[0].date).substring(0, 5);
+        // Strip invalid Excel characters from sheet name just in case
+        let sheetName = `${datePrefix}_${shift}`.substring(0, 31).replace(/[\\\/\?\*\[\]]/g, '_');
+        
+        // CRITICAL FIX: Ensure sheet names are unique to prevent xlsx crash
+        if (wb.SheetNames.includes(sheetName)) {
+            sheetName = `${sheetName.substring(0, 26)}_${idx}`;
+        }
+        
+        const aoa = [];
+        aoa.push(["BML MUNJAL UNIVERSITY"]);
+        aoa.push(["(SoET Examination)"]);
+        aoa.push(["MID TERM EXAMINATIONS"]);
+        aoa.push([`Date - ${dateStr} ${dayStr ? `(${dayStr})` : ''} ${shift}`]);
+        aoa.push([]);
+        
+        const headerRow = [
+          "S#", "Batch", "Course Code", "Course Title", "Room No.", 
+          "Invigilators Name", "Time", "Signature", 
+          "Booklets Issued (M)", "Booklets Issued (S)", 
+          "Booklets Returned (M)", "Booklets Returned (S)", 
+          "Signature", "USED", "UNUSED"
+        ];
+        aoa.push(headerRow);
 
-    XLSX.writeFile(wb, `Invigilation_Duties.xlsx`);
+        let rowNum = 1;
+        sList.forEach(session => {
+          session.rawExams.forEach(exam => {
+            aoa.push([
+              rowNum++,
+              exam.stream === 'GENERIC' ? 'Global / Common' : `${exam.stream} Sem ${exam.semester}`,
+              exam.course_code,
+              exam.course_title,
+              session.room,
+              session.invigilator ? session.invigilator.name : 'TBA',
+              `${session.startTime} - ${session.endTime}`,
+              "", "", "", "", "", "", "", ""
+            ]);
+          });
+        });
+
+        const ws = XLSX.utils.aoa_to_sheet(aoa);
+        ws['!cols'] = [
+          { wch: 5 }, { wch: 15 }, { wch: 15 }, { wch: 35 }, { wch: 18 }, 
+          { wch: 25 }, { wch: 15 }, { wch: 12 }, { wch: 15 }, { wch: 15 },
+          { wch: 18 }, { wch: 18 }, { wch: 12 }, { wch: 10 }, { wch: 10 }
+        ];
+
+        ws['A1'].s = { font: { bold: true } };
+        
+        XLSX.utils.book_append_sheet(wb, ws, sheetName);
+      });
+
+      XLSX.writeFile(wb, `Invigilation_Duties.xlsx`);
+    } catch (err) {
+      console.error("Excel Export Failed:", err);
+      alert("Failed to export Excel file. Check console for details.");
+    }
   };
 
   return (

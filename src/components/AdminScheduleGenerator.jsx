@@ -468,9 +468,10 @@ export default function AdminScheduleGenerator() {
 
                 const assignedRoomsSet = allocationResults.generatedRoomsForExams[exam.course_code];
                 if (assignedRoomsSet && assignedRoomsSet.size > 0) {
-                    Array.from(assignedRoomsSet).forEach(roomName => {
-                        enrichedSchedule.push({ ...slimExam, assignedRoom: roomName });
-                    });
+                    // FIX: Join rooms with a comma instead of creating duplicate exam entries.
+                    // ExamScheduleAssigner.jsx will split this string to assign separate teachers.
+                    const joinedRooms = Array.from(assignedRoomsSet).join(', ');
+                    enrichedSchedule.push({ ...slimExam, assignedRoom: joinedRooms });
                 } else {
                     enrichedSchedule.push({ ...slimExam, assignedRoom: 'TBA' });
                 }
