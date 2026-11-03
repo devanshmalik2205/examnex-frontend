@@ -29,6 +29,8 @@ import AdminStudents from './components/AdminStudents';
 import AdminCourses from './components/AdminCourses';
 import AdminScheduleGenerator from './components/AdminScheduleGenerator';
 import FacultyExamRequirements from './components/FacultyExamRequirements';
+import ExamScheduleAssigner from './components/ExamScheduleAssigner';
+import MasterDataImporter from './components/MasterDataImporter'; // <-- Added Import
 
 function SidebarImages({ role }) {
   const [imgIndex, setImgIndex] = useState(0);
@@ -268,8 +270,10 @@ export default function App() {
       case 'admin':
         return [
           { id: 'dashboard', label: 'Dashboard', icon: Layout },
+          { id: 'master-import', label: 'Master Import', icon: FileSpreadsheet }, // <-- Added nav item
           { id: 'requirements', label: 'Exam Requirements', icon: FileSpreadsheet },
           { id: 'generator', label: 'Exam Engine', icon: Wand2 },
+          { id: 'assigner', label: 'Duty Assigner', icon: Briefcase },
           { id: 'timetables', label: 'Timetables', icon: CalendarDays },
           { id: 'teachers', label: 'Teachers', icon: Briefcase },
           { id: 'students', label: 'Students', icon: Users },
@@ -297,7 +301,9 @@ export default function App() {
     if (userRole === 'admin' && activeTab === 'teachers') return <AdminTeachers />;
     if (userRole === 'admin' && activeTab === 'timetables') return <AdminTimetableViewer />;
     if (userRole === 'admin' && activeTab === 'courses') return <AdminCourses />;
+    if (userRole === 'admin' && activeTab === 'master-import') return <MasterDataImporter />; // <-- Added render condition
     if (userRole === 'admin' && activeTab === 'generator') return <AdminScheduleGenerator />;
+    if (userRole === 'admin' && activeTab === 'assigner') return <ExamScheduleAssigner />;
     if (userRole === 'admin' && activeTab === 'requirements') return <FacultyExamRequirements user={userData} isAdmin={true} />;
     
     if (userRole === 'faculty' && activeTab === 'requirements') return <FacultyExamRequirements user={userData} isAdmin={false} />;

@@ -460,7 +460,7 @@ export default function AdminStudents() {
                 <tr>
                   <th className="px-6 py-4">Reg No.</th>
                   <th className="px-6 py-4">Student Name</th>
-                  <th className="px-6 py-4">Stream</th>
+                  <th className="px-6 py-4">Academic Profile</th>
                   <th className="px-6 py-4">Email</th>
                   <th className="px-6 py-4 text-right">Actions</th>
                 </tr>
@@ -471,9 +471,16 @@ export default function AdminStudents() {
                     <td className="px-6 py-4 font-mono text-xs">{student.registration_no}</td>
                     <td className="px-6 py-4 font-medium text-slate-900 dark:text-white">{student.username}</td>
                     <td className="px-6 py-4">
-                      <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-slate-100 dark:bg-white/10 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-white/5">
-                        {student.stream || 'N/A'}
-                      </span>
+                      <div className="flex flex-col gap-1">
+                        <span className="inline-flex items-center px-2.5 py-1 w-fit rounded-md text-xs font-medium bg-slate-100 dark:bg-white/10 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-white/5">
+                          {student.stream || student.branch || 'N/A'}
+                        </span>
+                        {student.batch_year && (
+                          <span className="text-[10px] text-slate-500">
+                            Batch: {student.batch_year} {student.section ? `| Sec: ${student.section}` : ''}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-4 text-slate-500 dark:text-slate-400">{student.email || '-'}</td>
                     <td className="px-6 py-4">

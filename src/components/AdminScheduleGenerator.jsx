@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
     CalendarDays, 
     Clock, 
@@ -14,7 +14,8 @@ import {
     CheckCircle2,
     ArrowLeft,
     Download,
-    ChevronDown
+    ChevronDown,
+    Trash2
 } from 'lucide-react';
 import XLSX from 'xlsx-js-style';
 
@@ -24,6 +25,44 @@ export default function AdminScheduleGenerator() {
     const [isExporting, setIsExporting] = useState(false);
     const [error, setError] = useState(null);
     const [successMsg, setSuccessMsg] = useState(null);
+    const [existingExamsCount, setExistingExamsCount] = useState(0);
+
+    useEffect(() => {
+        checkExistingSchedule();
+    }, []);
+
+    const checkExistingSchedule = async () => {
+        try {
+            const backendUrl = import.meta.env?.VITE_BACKEND_URL || 'http://localhost:5000';
+            const res = await fetch(`${backendUrl}/api/admin/stats`);
+            if (res.ok) {
+                const data = await res.json();
+                setExistingExamsCount(data.total_exams || 0);
+            }
+        } catch (e) {
+            console.error("Could not check existing schedule", e);
+        }
+    };
+
+    const handleDeletePublished = async () => {
+        if (!window.confirm('Are you sure you want to delete the currently published exam schedule? This will clear allocations for the ExamScheduleAssigner.')) return;
+        
+        setIsLoading(true);
+        try {
+            const backendUrl = import.meta.env?.VITE_BACKEND_URL || 'http://localhost:5000';
+            const res = await fetch(`${backendUrl}/api/admin/schedule/clear`, { method: 'DELETE' });
+            if (res.ok) {
+                setExistingExamsCount(0);
+                alert('Published schedule cleared successfully!');
+            } else {
+                throw new Error('Failed to delete schedule');
+            }
+        } catch (e) {
+            alert('Error deleting schedule.');
+        } finally {
+            setIsLoading(false);
+        }
+    };
 
     // Form States
     const [dataSource, setDataSource] = useState('standard'); // 'standard' or 'sheet'
@@ -94,6 +133,7 @@ export default function AdminScheduleGenerator() {
                 title: req.course_name || 'Untitled',
                 duration: req.duration,
                 exam_mode: req.exam_mode,
+                remark: req.remark,
                 batches
             };
         });
@@ -189,6 +229,7 @@ export default function AdminScheduleGenerator() {
                     slotName: assignedSlot.slotName,
                     startTime: assignedSlot.startTime,
                     endTime: assignedSlot.endTime,
+                    remark: course.remark,
                     batches: course.batches
                 });
                 
@@ -248,7 +289,8 @@ export default function AdminScheduleGenerator() {
             });
             const data = await response.json();
             if (response.ok) {
-                setSuccessMsg('Schedule successfully finalized and saved to the database.');
+                setSuccessMsg('Schedule successfully finalized and saved to the database. It is now available for Invigilator Assignment.');
+                setExistingExamsCount(generatedSchedule.length);
                 setStep(3);
             } else { setError(data.error || 'Failed to commit schedule.'); }
         } catch (err) { setError('Server connection failed. Could not save.'); } 
@@ -339,7 +381,7 @@ export default function AdminScheduleGenerator() {
                 let currentRow = -1;
                 let prevExamCode = null;
 
-                // Seat assignment logic (with Column Gap / Interleave requirement)
+                // Seat assignment logic (with Column Gap / Interleave requirement and Lab/Room constraints)
                 for (const seat of room.seats) {
                     if (seat.row_number !== currentRow) {
                         currentRow = seat.row_number;
@@ -352,10 +394,29 @@ export default function AdminScheduleGenerator() {
 
                     let selectedQueue = null;
                     for (let i = 0; i < examQueues.length; i++) {
+                        const q = examQueues[i];
+                        
                         // Prevent students of the exact same exam from sitting left/right of each other
-                        if (examQueues[i].exam.course_code !== prevExamCode) {
-                            selectedQueue = examQueues[i];
-                            break;
+                        if (q.exam.course_code !== prevExamCode) {
+                            
+                            // Check Room Requirement Constraints assigned via remarks
+                            const reqLab = q.exam.remark && q.exam.remark.includes('Room Request: Lab');
+                            
+                            // Updated Regex to match multiple rooms and map to array
+                            const reqRoomMatch = q.exam.remark && q.exam.remark.match(/Room(?:s)?:\s*([A-Za-z0-9_,\s-]+)/);
+                            const reqRooms = reqRoomMatch ? reqRoomMatch[1].split(',').map(r => r.trim()) : [];
+
+                            let canPlace = true;
+                            
+                            if (reqLab && room.room_type?.toLowerCase() !== 'lab') canPlace = false;
+                            
+                            // If explicit rooms are requested, this room MUST be one of them
+                            if (reqRooms.length > 0 && !reqRooms.includes(room.room_name)) canPlace = false;
+
+                            if (canPlace) {
+                                selectedQueue = q;
+                                break;
+                            }
                         }
                     }
 
@@ -546,61 +607,104 @@ export default function AdminScheduleGenerator() {
                 const workbook = XLSX.utils.book_new();
 
                 if (format === 'xlsx-master') {
-                    involvedStudents.sort((a, b) => {
-                        const streamComp = (a.stream || '').localeCompare(b.stream || '');
-                        return streamComp !== 0 ? streamComp : (a.registration_no || '').localeCompare(b.registration_no || '');
+                    // Group students strictly by their Stream + Batch Year to completely unmix them
+                    const batchGroups = new Map();
+                    
+                    involvedStudents.forEach(student => {
+                        const yearPrefix = student.registration_no ? student.registration_no.substring(0, 2) : 'XX';
+                        let stream = (student.stream || 'Unknown').toUpperCase().trim();
+                        
+                        // Clean up stream names so grouping stays consistent
+                        if (stream.includes('CSE') || stream.includes('COMPUTER')) stream = 'CSE';
+                        else if (stream.includes('MECH') || stream === 'ME') stream = 'ME';
+                        else if (stream.includes('ECOM') || stream.includes('ELECTRONICS')) stream = 'ECOM';
+                        
+                        const batchName = `${stream} 20${yearPrefix}`;
+                        
+                        if (!batchGroups.has(batchName)) batchGroups.set(batchName, []);
+                        batchGroups.get(batchName).push(student);
                     });
 
-                    const row1 = ["", "", "", "DATE OF EXAM"]; const row2 = ["", "", "", "DAY"]; const row3 = ["", "", "", "SHIFT"]; const row4 = ["S#", "Stream", "Registration No", "Name"];
-                    sortedExams.forEach(exam => { row1.push(formatExamDate(exam.date)); row2.push(formatExamDay(exam.date)); row3.push((exam.slotName || '').toUpperCase()); row4.push((exam.title || exam.course_code || '').toUpperCase()); });
+                    const sortedBatchNames = Array.from(batchGroups.keys()).sort();
 
-                    const aoaData = [row1, row2, row3, row4];
-                    involvedStudents.forEach((student, index) => {
-                        const rowData = [ index + 1, student.stream || 'N/A', student.registration_no || 'N/A', student.username || 'N/A' ];
+                    sortedBatchNames.forEach(batchName => {
+                        const studentsInBatch = batchGroups.get(batchName);
+                        studentsInBatch.sort((a, b) => (a.registration_no || '').localeCompare(b.registration_no || ''));
+
+                        // Filter exams to ONLY those where students in THIS stream+batch are actually placed
+                        // This prevents Mechanical exams from showing up in CSE sheets, etc.
+                        const batchExams = [];
                         sortedExams.forEach((exam, examIdx) => {
-                            const allocatedRoom = studentExamRoomMap[`${student.registration_no}_${examIdx}`];
-                            rowData.push(allocatedRoom ? allocatedRoom : "--");
+                            const hasStudentsInBatch = studentsInBatch.some(s => !!studentExamRoomMap[`${s.registration_no}_${examIdx}`]);
+                            if (hasStudentsInBatch) {
+                                batchExams.push({ exam, examIdx });
+                            }
                         });
-                        aoaData.push(rowData);
-                    });
 
-                    const worksheet = XLSX.utils.aoa_to_sheet(aoaData);
+                        // If no exams apply to this specific batch segment, skip creating a sheet
+                        if (batchExams.length === 0) return;
 
-                    for (let r = 0; r <= 2; r++) ensureCell(worksheet, r, 3).s = { font: { bold: true, sz: 10, name: 'Calibri' }, alignment: { horizontal: 'right', vertical: 'center' }, border: borderBlack };
-                    for (let c = 0; c <= 3; c++) ensureCell(worksheet, 3, c).s = { font: { bold: true, sz: 10, name: 'Calibri' }, alignment: { horizontal: 'center', vertical: 'center' }, border: borderBlack };
-
-                    const STREAM_PALETTE = ['D9E1F2', 'FCE4D6', 'E2EFDA', 'FFF2CC', 'F2DCDB', 'E8D8F8', 'D9F2E6', 'EDEDED'];
-                    const distinctStreams = [...new Set(involvedStudents.map(s => s.stream || 'N/A'))];
-                    const streamColorMap = new Map(); distinctStreams.forEach((st, idx) => streamColorMap.set(st, STREAM_PALETTE[idx % STREAM_PALETTE.length]));
-
-                    sortedExams.forEach((exam, examIdx) => {
-                        const c = 4 + examIdx;
-                        const sC = (exam.slotName || '').toLowerCase().includes('morning') ? { bg: '92D050', text: '000000' } : { bg: 'FFC000', text: '000000' };
-                        [0, 1, 2].forEach(r => ensureCell(worksheet, r, c).s = { fill: { fgColor: { rgb: sC.bg } }, font: { bold: true, sz: 10, name: 'Calibri', color: { rgb: sC.text } }, alignment: { horizontal: 'center', vertical: 'center' }, border: borderBlack });
-                        ensureCell(worksheet, 3, c).s = { fill: { fgColor: { rgb: sC.bg } }, font: { bold: true, sz: 9, name: 'Calibri', color: { rgb: sC.text } }, alignment: { horizontal: 'center', vertical: 'center', wrapText: true }, border: borderBlack };
-                    });
-
-                    involvedStudents.forEach((student, sIdx) => {
-                        const r = 4 + sIdx;
-                        ensureCell(worksheet, r, 0).s = { font: { sz: 10, name: 'Calibri' }, alignment: { horizontal: 'center', vertical: 'center' }, border: borderBlack };
-                        ensureCell(worksheet, r, 1).s = { fill: { fgColor: { rgb: streamColorMap.get(student.stream || 'N/A') || 'FFFFFF' } }, font: { sz: 10, name: 'Calibri', bold: true }, alignment: { horizontal: 'center', vertical: 'center' }, border: borderBlack };
-                        ensureCell(worksheet, r, 2).s = { font: { sz: 10, name: 'Calibri' }, alignment: { horizontal: 'center', vertical: 'center' }, border: borderBlack };
-                        ensureCell(worksheet, r, 3).s = { font: { sz: 10, name: 'Calibri' }, alignment: { horizontal: 'left', vertical: 'center' }, border: borderBlack };
-                        sortedExams.forEach((exam, examIdx) => {
-                            const c = 4 + examIdx;
-                            const hasExam = !!studentExamRoomMap[`${student.registration_no}_${examIdx}`];
-                            ensureCell(worksheet, r, c).s = { font: { sz: 10, name: 'Calibri', bold: hasExam, color: hasExam ? {rgb: '0000FF'} : {rgb: '000000'} }, alignment: { horizontal: 'center', vertical: 'center' }, border: borderBlack };
+                        const row1 = ["", "", "", "DATE OF EXAM"]; 
+                        const row2 = ["", "", "", "DAY"]; 
+                        const row3 = ["", "", "", "SHIFT"]; 
+                        const row4 = ["S#", "Stream", "Registration No", "Name"];
+                        
+                        batchExams.forEach(({ exam }) => { 
+                            row1.push(formatExamDate(exam.date)); 
+                            row2.push(formatExamDay(exam.date)); 
+                            row3.push((exam.slotName || '').toUpperCase()); 
+                            row4.push((exam.title || exam.course_code || '').toUpperCase()); 
                         });
+
+                        const aoaData = [row1, row2, row3, row4];
+                        studentsInBatch.forEach((student, index) => {
+                            const rowData = [ index + 1, student.stream || 'N/A', student.registration_no || 'N/A', student.username || 'N/A' ];
+                            batchExams.forEach(({ examIdx }) => {
+                                const allocatedRoom = studentExamRoomMap[`${student.registration_no}_${examIdx}`];
+                                rowData.push(allocatedRoom ? allocatedRoom : "--");
+                            });
+                            aoaData.push(rowData);
+                        });
+
+                        const worksheet = XLSX.utils.aoa_to_sheet(aoaData);
+
+                        // Style Headers
+                        for (let r = 0; r <= 2; r++) ensureCell(worksheet, r, 3).s = { font: { bold: true, sz: 10, name: 'Calibri' }, alignment: { horizontal: 'right', vertical: 'center' }, border: borderBlack };
+                        for (let c = 0; c <= 3; c++) ensureCell(worksheet, 3, c).s = { font: { bold: true, sz: 10, name: 'Calibri' }, alignment: { horizontal: 'center', vertical: 'center' }, border: borderBlack };
+
+                        batchExams.forEach(({ exam }, idx) => {
+                            const c = 4 + idx;
+                            const sC = (exam.slotName || '').toLowerCase().includes('morning') ? { bg: '92D050', text: '000000' } : { bg: 'FFC000', text: '000000' };
+                            [0, 1, 2].forEach(r => ensureCell(worksheet, r, c).s = { fill: { fgColor: { rgb: sC.bg } }, font: { bold: true, sz: 10, name: 'Calibri', color: { rgb: sC.text } }, alignment: { horizontal: 'center', vertical: 'center' }, border: borderBlack });
+                            ensureCell(worksheet, 3, c).s = { fill: { fgColor: { rgb: sC.bg } }, font: { bold: true, sz: 9, name: 'Calibri', color: { rgb: sC.text } }, alignment: { horizontal: 'center', vertical: 'center', wrapText: true }, border: borderBlack };
+                        });
+
+                        studentsInBatch.forEach((student, sIdx) => {
+                            const r = 4 + sIdx;
+                            ensureCell(worksheet, r, 0).s = { font: { sz: 10, name: 'Calibri' }, alignment: { horizontal: 'center', vertical: 'center' }, border: borderBlack };
+                            ensureCell(worksheet, r, 1).s = { font: { sz: 10, name: 'Calibri', bold: true }, alignment: { horizontal: 'center', vertical: 'center' }, border: borderBlack };
+                            ensureCell(worksheet, r, 2).s = { font: { sz: 10, name: 'Calibri' }, alignment: { horizontal: 'center', vertical: 'center' }, border: borderBlack };
+                            ensureCell(worksheet, r, 3).s = { font: { sz: 10, name: 'Calibri' }, alignment: { horizontal: 'left', vertical: 'center' }, border: borderBlack };
+                            batchExams.forEach(({ examIdx }, idx) => {
+                                const c = 4 + idx;
+                                const hasExam = !!studentExamRoomMap[`${student.registration_no}_${examIdx}`];
+                                ensureCell(worksheet, r, c).s = { font: { sz: 10, name: 'Calibri', bold: hasExam, color: hasExam ? {rgb: '0000FF'} : {rgb: '000000'} }, alignment: { horizontal: 'center', vertical: 'center' }, border: borderBlack };
+                            });
+                        });
+
+                        worksheet['!rows'] = [{ hpt: 20 }, { hpt: 20 }, { hpt: 20 }, { hpt: 45 }];
+                        for (let i = 0; i < studentsInBatch.length; i++) worksheet['!rows'].push({ hpt: 22 });
+                        worksheet['!views'] = [{ state: 'frozen', xSplit: 4, ySplit: 4, topLeftCell: 'E5', activePane: 'bottomRight' }];
+                        
+                        const colWidths = [{ wch: 6 }, { wch: 16 }, { wch: 22 }, { wch: 30 }];
+                        batchExams.forEach(() => colWidths.push({ wch: 25 }));
+                        worksheet['!cols'] = colWidths;
+
+                        // Ensure Excel sheet name limitations (max 31 chars, no special chars)
+                        let safeSheetName = batchName.substring(0, 31).replace(/[/\\?*:[\]]/g, '_');
+                        XLSX.utils.book_append_sheet(workbook, worksheet, safeSheetName);
                     });
 
-                    worksheet['!rows'] = [{ hpt: 20 }, { hpt: 20 }, { hpt: 20 }, { hpt: 45 }];
-                    for (let i = 0; i < involvedStudents.length; i++) worksheet['!rows'].push({ hpt: 22 });
-                    worksheet['!views'] = [{ state: 'frozen', xSplit: 4, ySplit: 4, topLeftCell: 'E5', activePane: 'bottomRight' }];
-                    const colWidths = [{ wch: 6 }, { wch: 16 }, { wch: 22 }, { wch: 30 }];
-                    sortedExams.forEach(() => colWidths.push({ wch: 25 }));
-                    worksheet['!cols'] = colWidths;
-
-                    XLSX.utils.book_append_sheet(workbook, worksheet, "MASTER ALLOCATION");
                     XLSX.writeFile(workbook, `Master_Allocation_${startDate}.xlsx`);
 
                 } else if (format === 'xlsx-seating') {
@@ -655,7 +759,6 @@ export default function AdminScheduleGenerator() {
                         }
 
                         for(let r=5; r<=5+maxRow; r++) {
-                            // Perfect Zebra striping to match your exact requested reference!
                             const dataRowIdx = r - 6; 
                             const rowColor = dataRowIdx >= 0 ? (dataRowIdx % 2 === 0 ? 'FFFFFF' : 'F4F6F8') : 'FFFFFF';
 
@@ -666,9 +769,9 @@ export default function AdminScheduleGenerator() {
                                 
                                 if (r > 5 && c > 0) {
                                     if (cell.v) {
-                                        cell.s.fill = { fgColor: { rgb: rowColor } }; // Zebra stripe logic
+                                        cell.s.fill = { fgColor: { rgb: rowColor } }; 
                                     } else {
-                                        cell.s.fill = { fgColor: { rgb: 'E2E8F0' } }; // Aisle gray background
+                                        cell.s.fill = { fgColor: { rgb: 'E2E8F0' } }; 
                                     }
                                 }
                             }
@@ -734,13 +837,23 @@ export default function AdminScheduleGenerator() {
                 </div>
             )}
 
-            {}
+            {/* STEP 1 */}
             {step === 1 && (
                 <div className="bg-white dark:bg-[#111111] p-6 sm:p-8 rounded-2xl border border-slate-200 dark:border-white/10 shadow-sm transition-colors max-w-[1200px]">
-                    <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-200 mb-6 flex items-center transition-colors">
-                        <CalendarDays className="w-5 h-5 mr-2 text-slate-500" />
-                        Examination Period Configuration
-                    </h3>
+                    <div className="flex justify-between items-center mb-6">
+                        <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-200 flex items-center transition-colors">
+                            <CalendarDays className="w-5 h-5 mr-2 text-slate-500" />
+                            Examination Period Configuration
+                        </h3>
+                        {existingExamsCount > 0 && (
+                            <button 
+                                onClick={handleDeletePublished}
+                                className="flex items-center text-sm font-medium text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/30 px-3 py-1.5 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors"
+                            >
+                                <Trash2 className="w-4 h-4 mr-1.5" /> Delete Published Schedule
+                            </button>
+                        )}
+                    </div>
                     
                     <div className="mb-8">
                         <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 transition-colors">Data Source</label>
@@ -859,7 +972,7 @@ export default function AdminScheduleGenerator() {
                 </div>
             )}
 
-            {}
+            {/* STEP 2 */}
             {step === 2 && (
                 <div className="space-y-6 animate-in fade-in">
                     {clashes.length > 0 && (
@@ -964,6 +1077,13 @@ export default function AdminScheduleGenerator() {
                                                                                 <h4 className="text-xs font-semibold text-blue-800 dark:text-blue-300 leading-tight mb-2">
                                                                                     {exam.title}
                                                                                 </h4>
+                                                                                
+                                                                                {exam.remark && (
+                                                                                    <div className="text-[10px] bg-white/60 dark:bg-black/20 p-1.5 rounded border border-blue-100 dark:border-blue-800/30 text-blue-800 dark:text-blue-300 font-medium mb-1">
+                                                                                        <span className="font-bold">Req: </span> {exam.remark.replace(/ \| /g, ', ')}
+                                                                                    </div>
+                                                                                )}
+
                                                                                 <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-blue-100 dark:border-blue-800/30">
                                                                                     <span className="w-full text-[10px] uppercase font-bold text-blue-500 dark:text-blue-400 tracking-wider">Batches Mapped:</span>
                                                                                     {exam.batches.map(b => (
@@ -1011,7 +1131,7 @@ export default function AdminScheduleGenerator() {
                 </div>
             )}
 
-            {}
+            {/* STEP 3 */}
             {step === 3 && (
                 <div className="bg-white dark:bg-[#111111] p-8 md:p-12 rounded-2xl border border-slate-200 dark:border-white/10 shadow-sm text-center animate-in zoom-in-95 duration-500 transition-colors max-w-[800px] mx-auto mt-10">
                     <div className="w-20 h-20 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner transition-colors">

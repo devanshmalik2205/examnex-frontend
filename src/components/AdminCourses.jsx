@@ -64,8 +64,11 @@ export default function AdminCourses() {
     course_title: '',
     abbreviation: '',
     category: '',
+    sub_category: '',
     credits: '',
     ldp: '',
+    schedule: '',
+    remarks: '',
     course_type: 'regular',
     exam_type: 'standard'
   });
@@ -177,7 +180,7 @@ export default function AdminCourses() {
   const openAddModal = () => {
     setEditingId(null);
     setFormData({ 
-      course_code: '', course_title: '', abbreviation: '', category: '', credits: '', ldp: '', course_type: 'regular', exam_type: 'standard' 
+      course_code: '', course_title: '', abbreviation: '', category: '', sub_category: '', credits: '', ldp: '', schedule: '', remarks: '', course_type: 'regular', exam_type: 'standard' 
     });
     setError('');
     setIsModalOpen(true);
@@ -190,14 +193,18 @@ export default function AdminCourses() {
       course_title: course.course_title || '', 
       abbreviation: course.abbreviation || '', 
       category: course.category || '', 
+      sub_category: course.sub_category || '',
       credits: course.credits || '', 
       ldp: course.ldp || '', 
+      schedule: course.schedule || '',
+      remarks: course.remarks || '',
       course_type: course.course_type || 'regular',
       exam_type: course.exam_type || 'standard'
     });
     setError('');
     setIsModalOpen(true);
   };
+
 
   const openDeleteModal = (course) => {
     setCourseToDelete(course);
@@ -1139,6 +1146,16 @@ export default function AdminCourses() {
                   />
                 </div>
                 <div className="col-span-2 sm:col-span-1">
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Sub Category</label>
+                  <input 
+                    type="text" 
+                    value={formData.sub_category || ''}
+                    onChange={e => setFormData({...formData, sub_category: e.target.value})}
+                    className="w-full bg-slate-50 dark:bg-[#1a1a1a] border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500/50 text-slate-900 dark:text-white transition-all"
+                    placeholder="e.g. Core Elective"
+                  />
+                </div>
+                <div className="col-span-2 sm:col-span-1">
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Course Type</label>
                   <select 
                     value={formData.course_type}
@@ -1187,6 +1204,26 @@ export default function AdminCourses() {
                     onChange={e => setFormData({...formData, ldp: e.target.value})}
                     className="w-full bg-slate-50 dark:bg-[#1a1a1a] border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500/50 text-slate-900 dark:text-white transition-all"
                     placeholder="e.g. 2-0-2"
+                  />
+                </div>
+                <div className="col-span-2 sm:col-span-1">
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Schedule</label>
+                  <input 
+                    type="text" 
+                    value={formData.schedule || ''}
+                    onChange={e => setFormData({...formData, schedule: e.target.value})}
+                    className="w-full bg-slate-50 dark:bg-[#1a1a1a] border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500/50 text-slate-900 dark:text-white transition-all"
+                    placeholder="e.g. Mon/Wed 10:00 AM"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Remarks</label>
+                  <input 
+                    type="text" 
+                    value={formData.remarks || ''}
+                    onChange={e => setFormData({...formData, remarks: e.target.value})}
+                    className="w-full bg-slate-50 dark:bg-[#1a1a1a] border border-slate-200 dark:border-white/10 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500/50 text-slate-900 dark:text-white transition-all"
+                    placeholder="Any remarks..."
                   />
                 </div>
               </div>

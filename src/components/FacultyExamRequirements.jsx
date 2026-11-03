@@ -164,6 +164,148 @@ const SheetsDropdown = ({ value, options, onChange, onClose, triggerRef, colKey 
     );
 };
 
+const RemarkDropdown = ({ value, examMode, rooms, onChange, onClose, triggerRef }) => {
+    const [style, setStyle] = useState({});
+    const menuRef = useRef(null);
+
+    useEffect(() => {
+        if (triggerRef.current) {
+            const rect = triggerRef.current.getBoundingClientRect();
+            setStyle({
+                position: 'fixed',
+                top: `${rect.bottom + 2}px`,
+                left: `${rect.left}px`,
+                minWidth: '280px',
+                zIndex: 999999 
+            });
+        }
+    }, [triggerRef]);
+
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (menuRef.current && !menuRef.current.contains(event.target) && 
+                triggerRef.current && !triggerRef.current.contains(event.target)) {
+                onClose();
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [onClose, triggerRef]);
+
+    const safeVal = value || '';
+    
+    // Lab Handling
+    const [wantsLab, setWantsLab] = useState(safeVal.includes('Room Request: Lab'));
+    
+    // Multiple Rooms Handling
+    const roomMatch = safeVal.match(/Room(?:s)?:\s*([A-Za-z0-9_,\s-]+)/);
+    const [wantsRoom, setWantsRoom] = useState(!!roomMatch);
+    const [selectedRooms, setSelectedRooms] = useState(() => {
+        if (roomMatch) return roomMatch[1].split(',').map(r => r.trim());
+        return [];
+    });
+
+    // Software Handling
+    const swMatch = safeVal.match(/Software:\s*([^|]+)/);
+    const [wantsSw, setWantsSw] = useState(!!swMatch);
+    const [software, setSoftware] = useState(swMatch ? swMatch[1].trim() : '');
+
+    // Rough Sheets Handling
+    const roughMatch = safeVal.match(/Rough Sheets:\s*(\d+)/);
+    const [wantsRough, setWantsRough] = useState(!!roughMatch);
+    const [roughQty, setRoughQty] = useState(roughMatch ? roughMatch[1] : '');
+
+    const [custom, setCustom] = useState(() => {
+         let clean = safeVal;
+         clean = clean.replace(/Room Request: Lab\|?/g, '');
+         clean = clean.replace(/Room(?:s)?:\s*[A-Za-z0-9_,\s-]+\|?/g, '');
+         clean = clean.replace(/Software:\s*[^|]+\|?/g, '');
+         clean = clean.replace(/Rough Sheets:\s*\d+\|?/g, '');
+         return clean.replace(/^\|+|\|+$/g, '').trim();
+    });
+
+    const handleApply = (e) => {
+         e.stopPropagation();
+         const parts = [];
+         if (wantsLab) parts.push("Room Request: Lab");
+         if (wantsRoom && selectedRooms.length > 0) parts.push(`Rooms: ${selectedRooms.join(', ')}`);
+         if (wantsSw && software) parts.push(`Software: ${software}`);
+         if (wantsRough && roughQty) parts.push(`Rough Sheets: ${roughQty}`);
+         if (custom.trim()) parts.push(custom.trim());
+         onChange(parts.join(' | '));
+    };
+
+    return createPortal(
+        <div 
+            ref={menuRef} style={style} onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } }}
+            className="bg-white dark:bg-[#222] shadow-2xl border border-slate-200 dark:border-white/10 rounded-lg p-4 flex flex-col gap-2 max-h-[400px] overflow-y-auto animate-in fade-in zoom-in-95 duration-100 custom-scrollbar-thin text-slate-800 dark:text-slate-200"
+        >
+            <div className="font-semibold text-sm mb-1 text-slate-900 dark:text-white border-b border-slate-200 dark:border-white/10 pb-1">Select Remarks & Requirements</div>
+            
+            <label className="flex items-center gap-2 cursor-pointer mt-1 hover:bg-slate-50 dark:hover:bg-white/5 p-1 rounded transition-colors">
+                <input type="checkbox" checked={wantsLab} onChange={e => { e.stopPropagation(); setWantsLab(e.target.checked); }} className="rounded text-blue-600 focus:ring-blue-500 w-3.5 h-3.5 cursor-pointer" />
+                <span className="text-[13px] font-medium">Room Request: Lab</span>
+            </label>
+
+            <label className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 dark:hover:bg-white/5 p-1 rounded transition-colors">
+                <input type="checkbox" checked={wantsRoom} onChange={e => { e.stopPropagation(); setWantsRoom(e.target.checked); }} className="rounded text-blue-600 focus:ring-blue-500 w-3.5 h-3.5 cursor-pointer" />
+                <span className="text-[13px] font-medium">Particular Room(s)</span>
+            </label>
+            {wantsRoom && (
+                <div className="pl-6 mb-1" onClick={e => e.stopPropagation()}>
+                    <select 
+                        multiple 
+                        value={selectedRooms} 
+                        onChange={e => {
+                            const opts = Array.from(e.target.selectedOptions, option => option.value);
+                            setSelectedRooms(opts);
+                        }} 
+                        className="w-full p-1.5 border border-slate-300 dark:border-slate-600 bg-white dark:bg-[#111] rounded text-[13px] outline-none shadow-sm cursor-pointer min-h-[80px] custom-scrollbar-thin"
+                    >
+                        {(rooms || []).map(r => <option key={r.id} value={r.room_name}>{r.room_name} ({r.room_type || 'Unknown'}) - Cap: {r.capacity}</option>)}
+                    </select>
+                    <div className="text-[10px] text-slate-500 mt-1 italic">Hold Ctrl/Cmd to select multiple rooms</div>
+                </div>
+            )}
+
+            <label className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 dark:hover:bg-white/5 p-1 rounded transition-colors">
+                <input type="checkbox" checked={wantsRough} onChange={e => { e.stopPropagation(); setWantsRough(e.target.checked); }} className="rounded text-blue-600 focus:ring-blue-500 w-3.5 h-3.5 cursor-pointer" />
+                <span className="text-[13px] font-medium">Rough Sheets Req.</span>
+            </label>
+            {wantsRough && (
+                <div className="pl-6 mb-1" onClick={e => e.stopPropagation()}>
+                    <input type="number" min="1" value={roughQty} onChange={e => setRoughQty(e.target.value)} placeholder="Enter quantity (e.g., 50)" className="w-full p-1.5 border border-slate-300 dark:border-slate-600 bg-white dark:bg-[#111] rounded text-[13px] outline-none shadow-sm" />
+                </div>
+            )}
+
+            {examMode && examMode.toLowerCase().includes('lab') && (
+                <>
+                    <label className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 dark:hover:bg-white/5 p-1 rounded transition-colors">
+                        <input type="checkbox" checked={wantsSw} onChange={e => { e.stopPropagation(); setWantsSw(e.target.checked); }} className="rounded text-blue-600 focus:ring-blue-500 w-3.5 h-3.5 cursor-pointer" />
+                        <span className="text-[13px] font-medium text-indigo-700 dark:text-indigo-400">Software Installed Req.</span>
+                    </label>
+                    {wantsSw && (
+                        <div className="pl-6 mb-1" onClick={e => e.stopPropagation()}>
+                            <input type="text" value={software} onChange={e => setSoftware(e.target.value)} placeholder="e.g. MATLAB, VS Code" className="w-full p-1.5 border border-slate-300 dark:border-slate-600 bg-white dark:bg-[#111] rounded text-[13px] outline-none shadow-sm" />
+                        </div>
+                    )}
+                </>
+            )}
+
+            <div className="text-[13px] font-medium mt-2">Other Remarks:</div>
+            <div onClick={e => e.stopPropagation()}>
+                <textarea value={custom} onChange={e => setCustom(e.target.value)} className="w-full p-2 border border-slate-300 dark:border-slate-600 bg-white dark:bg-[#111] rounded text-[13px] outline-none custom-scrollbar-thin shadow-sm" rows="2" placeholder="Any additional notes..." />
+            </div>
+
+            <div className="flex justify-end gap-2 mt-3 pt-2 border-t border-slate-200 dark:border-white/10">
+                <button onClick={(e) => { e.stopPropagation(); onClose(); }} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-white/10 dark:hover:bg-white/20 text-slate-700 dark:text-slate-300 text-xs font-medium rounded transition-colors">Cancel</button>
+                <button onClick={handleApply} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded transition-colors shadow-sm">Apply Remarks</button>
+            </div>
+        </div>,
+        document.body
+    );
+};
+
 // Helper for safe date parsing
 const parseDateSafely = (dateString) => {
     if (!dateString) return null;
@@ -192,6 +334,7 @@ export default function FacultyExamRequirements({ user, isAdmin = false }) {
 
   const [catalogCourses, setCatalogCourses] = useState([]);
   const [catalogTeachers, setCatalogTeachers] = useState([]);
+  const [catalogRooms, setCatalogRooms] = useState([]);
 
   // Grid interaction states
   const [selectedCell, setSelectedCell] = useState({ rowIdx: 0, colKey: 'coordinator_name' });
@@ -222,6 +365,7 @@ export default function FacultyExamRequirements({ user, isAdmin = false }) {
   useEffect(() => { rowsRef.current = rows; }, [rows]);
   useEffect(() => { deletedIdsRef.current = deletedIds; }, [deletedIds]);
 
+  // Notice customDropdown: 'remark' below! This is required to open the popup.
   const columns = useMemo(() => [
     { key: 'coordinator_name', letter: 'A', title: 'Name of coordinator', width: 'w-48 min-w-[192px]', listId: 'teachersList' },
     { key: 'semester', letter: 'B', title: 'Semester', width: 'w-24 min-w-[96px]', options: SEMESTER_OPTIONS },
@@ -232,7 +376,7 @@ export default function FacultyExamRequirements({ user, isAdmin = false }) {
     { key: 'exam_mode', letter: 'G', title: 'Exam mode (Written, Lab, Project, MCQ)', width: 'w-64 min-w-[256px]', options: EXAM_MODE_OPTIONS },
     { key: 'exam_weightage', letter: 'H', title: 'Weightage %', width: 'w-28 min-w-[112px]' },
     { key: 'duration', letter: 'I', title: 'Duration (hours / min)', width: 'w-48 min-w-[192px]', options: DURATION_PRESETS },
-    { key: 'remark', letter: 'J', title: 'Remark (Evaluation / Room requirements)', width: 'w-72 min-w-[288px]' }
+    { key: 'remark', letter: 'J', title: 'Remark (Evaluation / Room requirements)', width: 'w-80 min-w-[320px]', customDropdown: 'remark' }
   ], []);
 
   // SAFELY check for emptiness by aggressively casting to strings
@@ -390,8 +534,13 @@ export default function FacultyExamRequirements({ user, isAdmin = false }) {
           if (Array.isArray(teachersData)) setCatalogTeachers(teachersData);
       }
 
+      const roomsRes = await fetch(`${backendUrl}/api/admin/rooms`).catch(() => null);
+      if (roomsRes?.ok) {
+          const roomsData = await roomsRes.json().catch(() => ([]));
+          if (Array.isArray(roomsData)) setCatalogRooms(roomsData);
+      }
+
       let loadedRows = [];
-      // Cache buster included here to prevent stale reload bugs!
       const reqRes = await fetch(`${backendUrl}/api/exam-requirements?t=${Date.now()}`).catch(() => null);
       if (reqRes?.ok) {
         const data = await reqRes.json().catch(() => ([]));
@@ -473,7 +622,17 @@ export default function FacultyExamRequirements({ user, isAdmin = false }) {
     const targetRow = { ...(updated[rowIdx] || {}) };
     
     // Process input aggressively to clean it before saving state
-    targetRow[colKey] = sanitizeValue(colKey, value);
+    const sanitizedVal = sanitizeValue(colKey, value);
+    targetRow[colKey] = sanitizedVal;
+
+    // Automatic Wipe functionality if 'is_conducted' changed to No
+    if (colKey === 'is_conducted' && sanitizedVal === 'No') {
+        targetRow.course_type = '';
+        targetRow.exam_mode = '';
+        targetRow.exam_weightage = '';
+        targetRow.duration = '';
+        targetRow.remark = '';
+    }
 
     const inputVal = String(targetRow[colKey] || '').trim().toUpperCase();
 
@@ -653,11 +812,20 @@ export default function FacultyExamRequirements({ user, isAdmin = false }) {
             if (targetColIdx < columns.length) {
                 const colKey = columns[targetColIdx].key;
                 
+                // Do not allow paste to override disabled columns
+                if (targetRow.is_conducted === 'No' && ['course_type', 'exam_mode', 'exam_weightage', 'duration', 'remark'].includes(colKey)) {
+                    continue;
+                }
+
                 // Sanitize upon pasting
                 const value = sanitizeValue(colKey, String(rowData[j] || '').trim());
                 
                 targetRow[colKey] = value;
                 rowHasChanged = true;
+
+                if (colKey === 'is_conducted' && value === 'No') {
+                    targetRow.course_type = ''; targetRow.exam_mode = ''; targetRow.exam_weightage = ''; targetRow.duration = ''; targetRow.remark = '';
+                }
 
                 if (['course_name', 'course_code'].includes(colKey) && value !== '') {
                     let matched = safeCatalog.find(c => String(c?.course_title || '').toUpperCase() === value.toUpperCase() || String(c?.course_code || '').toUpperCase() === value.toUpperCase());
@@ -721,13 +889,15 @@ export default function FacultyExamRequirements({ user, isAdmin = false }) {
     const colIdx = columns.findIndex(c => c.key === selectedCell.colKey);
     const safeRows = Array.isArray(rows) ? rows : [];
     const targetRow = safeRows[rowIdx];
-    const isColEditable = isEditable && targetRow && !targetRow?.is_example; 
+
+    const isColDisabled = targetRow?.is_conducted === 'No' && ['course_type', 'exam_mode', 'exam_weightage', 'duration', 'remark'].includes(selectedCell.colKey);
+    const isColEditable = isEditable && targetRow && !targetRow?.is_example && !isColDisabled; 
 
     if (!editingCell && !dropdownCell && e.key === 'Enter') {
         e.preventDefault();
         if (!isColEditable) return;
         const col = columns[colIdx];
-        if (col && col.options) setDropdownCell(selectedCell); else setEditingCell(selectedCell);
+        if (col && (col.options || col.customDropdown)) setDropdownCell(selectedCell); else setEditingCell(selectedCell);
         return; 
     }
 
@@ -768,7 +938,7 @@ export default function FacultyExamRequirements({ user, isAdmin = false }) {
         case 'Delete': e.preventDefault(); handleDeleteSelection(); break;
         default:
             if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
-                if (!columns[colIdx]?.options && isColEditable) {
+                if (!columns[colIdx]?.options && !columns[colIdx]?.customDropdown && isColEditable) {
                     e.preventDefault(); setEditingCell(selectedCell); handleCellChange(rowIdx, selectedCell.colKey, e.key);
                 }
             }
@@ -816,8 +986,14 @@ export default function FacultyExamRequirements({ user, isAdmin = false }) {
           let hasCleared = false;
           for(let c = minCol; c <= maxCol; c++) {
               if (columns[c]) {
+                  if (target.is_conducted === 'No' && ['course_type', 'exam_mode', 'exam_weightage', 'duration', 'remark'].includes(columns[c].key)) continue;
+                  
                   target[columns[c].key] = '';
                   hasCleared = true;
+
+                  if (columns[c].key === 'is_conducted') {
+                      target.course_type = ''; target.exam_mode = ''; target.exam_weightage = ''; target.duration = ''; target.remark = '';
+                  }
               }
           }
           if (hasCleared) {
@@ -841,7 +1017,8 @@ export default function FacultyExamRequirements({ user, isAdmin = false }) {
       const colKey = col.key;
       const safeRows = Array.isArray(rows) ? rows : [];
       const targetRow = safeRows[rowIdx];
-      const isColEditable = isEditable && targetRow && !targetRow?.is_example;
+      const isColDisabled = targetRow?.is_conducted === 'No' && ['course_type', 'exam_mode', 'exam_weightage', 'duration', 'remark'].includes(colKey);
+      const isColEditable = isEditable && targetRow && !targetRow?.is_example && !isColDisabled;
       
       if (e.shiftKey) {
           setSelectionRange(p => ({ ...p, endRow: rowIdx, endCol: colIdx }));
@@ -850,7 +1027,7 @@ export default function FacultyExamRequirements({ user, isAdmin = false }) {
           setIsDragging(true);
           updateSelection(rowIdx, colIdx);
           
-          if (col.options && isColEditable) {
+          if ((col.options || col.customDropdown) && isColEditable) {
               setDropdownCell({ rowIdx, colKey });
               setEditingCell(null);
           } else {
@@ -868,7 +1045,7 @@ export default function FacultyExamRequirements({ user, isAdmin = false }) {
   };
 
   const handleAddRow = () => {
-    if (!isEditable) return; // Fixed to allow non-admins to append rows if window is open
+    if (!isEditable) return; 
     setActiveTab('all'); 
     const newRows = Array(isAdmin ? 10 : 5).fill(null).map((_, i) => ({
       id: generateTempId(Date.now() + i), coordinator_name: '', semester: '', course_name: '', course_code: '',
@@ -942,6 +1119,7 @@ export default function FacultyExamRequirements({ user, isAdmin = false }) {
           const cCode = findKey(['course code', 'course_code', 'code']) || '';
           const cName = findKey(['course name', 'course_name', 'title']) || '';
           const cType = findKey(['course type', 'type']) || '';
+          const isConducted = sanitizeValue('is_conducted', findKey(['whether', 'conduct', 'committee']));
 
           return {
             id: generateTempId(idx),
@@ -949,12 +1127,12 @@ export default function FacultyExamRequirements({ user, isAdmin = false }) {
             semester: findKey(['semester', 'sem']) || '',
             course_name: cName,
             course_code: cCode,
-            is_conducted: sanitizeValue('is_conducted', findKey(['whether', 'conduct', 'committee'])),
-            course_type: sanitizeValue('course_type', cType),
-            exam_mode: sanitizeValue('exam_mode', findKey(['exam mode', 'mode'])),
-            exam_weightage: sanitizeValue('exam_weightage', findKey(['weightage', 'weight'])),
-            duration: sanitizeValue('duration', findKey(['duration', 'time', 'hours'])),
-            remark: findKey(['remark', 'notes', 'comment']) || '',
+            is_conducted: isConducted,
+            course_type: isConducted === 'No' ? '' : sanitizeValue('course_type', cType),
+            exam_mode: isConducted === 'No' ? '' : sanitizeValue('exam_mode', findKey(['exam mode', 'mode'])),
+            exam_weightage: isConducted === 'No' ? '' : sanitizeValue('exam_weightage', findKey(['weightage', 'weight'])),
+            duration: isConducted === 'No' ? '' : sanitizeValue('duration', findKey(['duration', 'time', 'hours'])),
+            remark: isConducted === 'No' ? '' : (findKey(['remark', 'notes', 'comment']) || ''),
             is_reexam: cCode.toUpperCase().endsWith('R') || cName.toUpperCase().includes('(RE)') || cType.toUpperCase().includes('REPEAT')
           };
         });
@@ -1191,7 +1369,8 @@ export default function FacultyExamRequirements({ user, isAdmin = false }) {
                         const colKey = col.key;
                         const cellValue = row?.[colKey] != null ? String(row[colKey]) : '';
                         
-                        const isColEditable = isEditable && !row?.is_example;
+                        const isColDisabled = row?.is_conducted === 'No' && ['course_type', 'exam_mode', 'exam_weightage', 'duration', 'remark'].includes(colKey);
+                        const isColEditable = isEditable && !row?.is_example && !isColDisabled;
 
                         const isInSelectionRange = selectionRange 
                             ? (rowIdx >= Math.min(selectionRange.startRow, selectionRange.endRow) && 
@@ -1201,13 +1380,15 @@ export default function FacultyExamRequirements({ user, isAdmin = false }) {
                             : false;
                         
                         const isActiveCursor = selectedCell?.rowIdx === rowIdx && selectedCell?.colKey === colKey;
-                        const isTextEditing = editingCell?.rowIdx === rowIdx && editingCell?.colKey === colKey && !col.options;
-                        const isDropdownOpen = dropdownCell?.rowIdx === rowIdx && dropdownCell?.colKey === colKey && col.options;
+                        const isTextEditing = editingCell?.rowIdx === rowIdx && editingCell?.colKey === colKey && !col.options && !col.customDropdown;
+                        const isDropdownOpen = dropdownCell?.rowIdx === rowIdx && dropdownCell?.colKey === colKey && (col.options || col.customDropdown);
 
                         const cellStyling = isTextEditing || isDropdownOpen ? 'z-50 overflow-visible bg-white dark:bg-[#222]' 
                             : isActiveCursor ? 'ring-[2px] ring-[#1a73e8] ring-inset z-10 bg-blue-50/20 dark:bg-blue-900/40 outline-none'
                             : isInSelectionRange ? 'bg-blue-100/60 dark:bg-blue-800/40 outline outline-1 outline-blue-300 dark:outline-blue-600'
                             : (!isColEditable && !row?.is_example ? 'bg-slate-50 dark:bg-white/[0.02]' : '');
+                            
+                        const disabledStyling = isColDisabled ? 'opacity-40 bg-slate-100 dark:bg-[#1a1a1a] cursor-not-allowed text-slate-400' : '';
 
                         return (
                           <td
@@ -1219,9 +1400,9 @@ export default function FacultyExamRequirements({ user, isAdmin = false }) {
                             onMouseEnter={() => handleCellMouseEnter(rowIdx, colIdx)}
                             onDoubleClick={() => {
                                 if (!isColEditable) return;
-                                if (!col.options) setEditingCell({ rowIdx, colKey });
+                                if (!col.options && !col.customDropdown) setEditingCell({ rowIdx, colKey });
                             }}
-                            className={`px-2 h-6 border-r border-b border-[#e2e3e3] dark:border-white/10 text-[13px] ${row?.is_example ? 'text-amber-700 dark:text-amber-500' : 'text-slate-800 dark:text-slate-200'} relative whitespace-nowrap cursor-cell ${(!isTextEditing && !isDropdownOpen) ? 'overflow-hidden' : ''} ${cellStyling}`}
+                            className={`px-2 h-6 border-r border-b border-[#e2e3e3] dark:border-white/10 text-[13px] ${row?.is_example ? 'text-amber-700 dark:text-amber-500' : 'text-slate-800 dark:text-slate-200'} relative whitespace-nowrap cursor-cell ${(!isTextEditing && !isDropdownOpen) ? 'overflow-hidden' : ''} ${cellStyling} ${disabledStyling}`}
                           >
                             {isTextEditing && isColEditable ? (
                                 <input
@@ -1246,7 +1427,7 @@ export default function FacultyExamRequirements({ user, isAdmin = false }) {
                                 </div>
                             )}
 
-                            {isDropdownOpen && isColEditable && (
+                            {isDropdownOpen && isColEditable && col.options && (
                                 <SheetsDropdown
                                    value={cellValue}
                                    options={col.options}
@@ -1264,12 +1445,31 @@ export default function FacultyExamRequirements({ user, isAdmin = false }) {
                                    }}
                                 />
                             )}
+                            
+                            {isDropdownOpen && isColEditable && col.customDropdown === 'remark' && (
+                                <RemarkDropdown
+                                    value={cellValue}
+                                    examMode={row?.exam_mode}
+                                    rooms={catalogRooms}
+                                    triggerRef={activeCellRef}
+                                    onChange={(val) => {
+                                        handleCellChange(rowIdx, colKey, val);
+                                        setDropdownCell(null);
+                                        gridContainerRef.current?.focus();
+                                        if (colIdx < columns.length - 1) updateSelection(rowIdx, colIdx + 1);
+                                    }}
+                                    onClose={() => {
+                                        setDropdownCell(null);
+                                        gridContainerRef.current?.focus(); 
+                                    }}
+                                />
+                            )}
 
                             {isActiveCursor && !isTextEditing && !isDropdownOpen && (
                               <div className="absolute -bottom-[2px] -right-[2px] w-1.5 h-1.5 bg-[#1a73e8] border border-white z-20 cursor-crosshair pointer-events-none" />
                             )}
                             
-                            {col.options && isColEditable && (isActiveCursor || isInSelectionRange) && !isDropdownOpen && (
+                            {(col.options || col.customDropdown) && isColEditable && (isActiveCursor || isInSelectionRange) && !isDropdownOpen && (
                                 <div className="absolute right-1 top-1/2 -translate-y-1/2 bg-slate-100 dark:bg-[#333] rounded px-0.5 text-slate-500 cursor-pointer hover:bg-slate-200 pointer-events-auto">
                                     <ChevronDown className="w-3 h-3" />
                                 </div>
