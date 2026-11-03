@@ -33,11 +33,19 @@ export default function ExamScheduleAssigner() {
     }
   };
 
-  // Format Date and Time into '5M', '6E', '9A' format
+  // Format Date and Time into '5M', '6E', '9A' format safely avoiding timezone shifts
   const formatSlotKey = (dateStr, timeStr) => {
     if (!dateStr || !timeStr) return '';
-    const day = new Date(dateStr).getDate();
-    const hour = parseInt(timeStr.split(':')[0], 10);
+    
+    let day;
+    const dStr = String(dateStr);
+    if (dStr.match(/^\d{4}-\d{2}-\d{2}/)) {
+        day = parseInt(dStr.substring(8, 10), 10);
+    } else {
+        day = new Date(dateStr).getDate();
+    }
+    
+    const hour = parseInt(String(timeStr).split(':')[0], 10);
     let shift = 'M';
     if (hour >= 12 && hour < 15) shift = 'A';
     if (hour >= 15) shift = 'E';
@@ -116,15 +124,36 @@ export default function ExamScheduleAssigner() {
 
         const sessionsArray = Array.from(roomSessions.values());
 
+        // Helper: Convert time strings like '9:00', '14:30' into total minutes for safe math comparison
+        const timeToMins = (tStr) => {
+            if (!tStr) return 0;
+            const parts = String(tStr).split(':');
+            return (parseInt(parts[0], 10) || 0) * 60 + (parseInt(parts[1], 10) || 0);
+        };
+
         // STRICT TIME OVERLAP CHECKER: Ensures a teacher cannot be in 2 rooms at the same time
         const isTeacherBusy = (teacher, session) => {
-            const sessDate = new Date(session.date).toISOString().split('T')[0];
+            // Robust date extractor to prevent timezone shift issues (e.g. UTC midnight -> IST previous day)
+            const getSafeDate = (d) => {
+                if (!d) return '';
+                const dStr = String(d);
+                if (dStr.match(/^\d{4}-\d{2}-\d{2}/)) return dStr.substring(0, 10);
+                const dt = new Date(d);
+                return `${dt.getFullYear()}-${dt.getMonth()}-${dt.getDate()}`;
+            };
+            
+            const sessDate = getSafeDate(session.date);
+            
             return teacher.assignedSlots.some(slot => {
-                const slotDate = new Date(slot.date).toISOString().split('T')[0];
-                if (slotDate !== sessDate) return false; // Different day, not busy
+                if (getSafeDate(slot.date) !== sessDate) return false; // Different day, not busy
+                
+                const sStart = timeToMins(session.startTime);
+                const sEnd = timeToMins(session.endTime) || (sStart + 180); // Default 3h buffer if missing
+                const slotStart = timeToMins(slot.startTime);
+                const slotEnd = timeToMins(slot.endTime) || (slotStart + 180);
                 
                 // Mathematical Overlap check: Start A < End B AND Start B < End A
-                return (session.startTime < slot.endTime && slot.startTime < session.endTime);
+                return (sStart < slotEnd && slotStart < sEnd);
             });
         };
 
