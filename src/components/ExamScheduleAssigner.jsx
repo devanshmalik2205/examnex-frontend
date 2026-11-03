@@ -33,6 +33,36 @@ export default function ExamScheduleAssigner() {
     }
   };
 
+  // Helper: Convert time strings like '9:00', '14:30', or '2:00 PM' into total minutes for safe math comparison
+  const timeToMins = (tStr) => {
+      if (!tStr) return 0;
+      const str = String(tStr).trim().toLowerCase();
+      const isPM = str.includes('pm');
+      const isAM = str.includes('am');
+      
+      const match = str.match(/(\d+)[^\d]*(\d*)/);
+      if (!match) return 0;
+      
+      let hours = parseInt(match[1], 10) || 0;
+      const mins = parseInt(match[2], 10) || 0;
+      
+      if (isPM && hours < 12) hours += 12;
+      if (isAM && hours === 12) hours = 0;
+      
+      return hours * 60 + mins;
+  };
+
+  // Robust date extractor to prevent timezone shift issues or Invalid Date fallback collisions
+  const getSafeDate = (d) => {
+      if (!d) return '';
+      const dStr = String(d).trim();
+      if (dStr.match(/^\d{4}-\d{2}-\d{2}/)) return dStr.substring(0, 10);
+      
+      const dt = new Date(d);
+      if (isNaN(dt.getTime())) return dStr.toLowerCase(); // Prevents "NaN" collisions for raw strings like "Monday"
+      return `${dt.getFullYear()}-${dt.getMonth()}-${dt.getDate()}`;
+  };
+
   // Format Date and Time into '5M', '6E', '9A' format safely avoiding timezone shifts
   const formatSlotKey = (dateStr, timeStr) => {
     if (!dateStr || !timeStr) return '';
@@ -42,10 +72,14 @@ export default function ExamScheduleAssigner() {
     if (dStr.match(/^\d{4}-\d{2}-\d{2}/)) {
         day = parseInt(dStr.substring(8, 10), 10);
     } else {
-        day = new Date(dateStr).getDate();
+        const dt = new Date(dateStr);
+        if (!isNaN(dt.getTime())) day = dt.getDate();
+        else day = dStr.substring(0, 3).toUpperCase();
     }
     
-    const hour = parseInt(String(timeStr).split(':')[0], 10);
+    const timeMins = timeToMins(timeStr);
+    const hour = Math.floor(timeMins / 60);
+    
     let shift = 'M';
     if (hour >= 12 && hour < 15) shift = 'A';
     if (hour >= 15) shift = 'E';
@@ -96,52 +130,41 @@ export default function ExamScheduleAssigner() {
 
         // 2. Group Exams by Room, Date, and Time (Unique Invigilation Session)
         const roomSessions = new Map();
-        exams.forEach(exam => {
-          // If no physical room is assigned yet, group by course code so it still assigns an invigilator!
-          const assignedRoom = (!exam.room || exam.room === 'TBA') ? `Room TBA (${exam.course_code})` : exam.room;
-          const key = `${exam.date}_${exam.start_time}_${assignedRoom}`;
+        exams.forEach(rawExam => {
+          // CRITICAL FIX: Split comma-separated rooms so they generate distinct sessions requiring distinct teachers
+          const roomList = rawExam.room ? String(rawExam.room).split(',').map(r => r.trim()).filter(Boolean) : ['TBA'];
           
-          if (!roomSessions.has(key)) {
-            roomSessions.set(key, {
-              key,
-              date: exam.date,
-              startTime: exam.start_time,
-              endTime: exam.end_time,
-              room: assignedRoom,
-              courses: new Set(),
-              batches: new Set(),
-              rawExams: [],
-              invigilator: null
-            });
-          }
-          const session = roomSessions.get(key);
-          session.courses.add(exam.course_code);
-          if (exam.stream !== 'GENERIC') {
-              session.batches.add(`${exam.stream} S${exam.semester}`);
-          }
-          session.rawExams.push(exam);
+          roomList.forEach(singleRoom => {
+              const exam = { ...rawExam, room: singleRoom };
+              const assignedRoom = (singleRoom === 'TBA') ? `Room TBA (${exam.course_code})` : singleRoom;
+              const key = `${exam.date}_${exam.start_time}_${assignedRoom}`;
+              
+              if (!roomSessions.has(key)) {
+                roomSessions.set(key, {
+                  key,
+                  date: exam.date,
+                  startTime: exam.start_time,
+                  endTime: exam.end_time,
+                  room: assignedRoom,
+                  courses: new Set(),
+                  batches: new Set(),
+                  rawExams: [],
+                  invigilator: null
+                });
+              }
+              const session = roomSessions.get(key);
+              session.courses.add(exam.course_code);
+              if (exam.stream !== 'GENERIC') {
+                  session.batches.add(`${exam.stream} S${exam.semester}`);
+              }
+              session.rawExams.push(exam);
+          });
         });
 
         const sessionsArray = Array.from(roomSessions.values());
 
-        // Helper: Convert time strings like '9:00', '14:30' into total minutes for safe math comparison
-        const timeToMins = (tStr) => {
-            if (!tStr) return 0;
-            const parts = String(tStr).split(':');
-            return (parseInt(parts[0], 10) || 0) * 60 + (parseInt(parts[1], 10) || 0);
-        };
-
         // STRICT TIME OVERLAP CHECKER: Ensures a teacher cannot be in 2 rooms at the same time
         const isTeacherBusy = (teacher, session) => {
-            // Robust date extractor to prevent timezone shift issues (e.g. UTC midnight -> IST previous day)
-            const getSafeDate = (d) => {
-                if (!d) return '';
-                const dStr = String(d);
-                if (dStr.match(/^\d{4}-\d{2}-\d{2}/)) return dStr.substring(0, 10);
-                const dt = new Date(d);
-                return `${dt.getFullYear()}-${dt.getMonth()}-${dt.getDate()}`;
-            };
-            
             const sessDate = getSafeDate(session.date);
             
             return teacher.assignedSlots.some(slot => {
