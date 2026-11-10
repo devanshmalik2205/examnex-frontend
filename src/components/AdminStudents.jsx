@@ -10,7 +10,8 @@ import {
   GraduationCap,
   Filter,
   Download,
-  ChevronDown
+  ChevronDown,
+  RefreshCw
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -27,6 +28,7 @@ export default function AdminStudents() {
   
   // Download State
   const [showDownload, setShowDownload] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -78,6 +80,12 @@ export default function AdminStudents() {
     // eslint-disable-next-line
     fetchStudents();
   }, []);
+
+  const handleSync = async () => {
+    setIsSyncing(true);
+    await fetchStudents();
+    setIsSyncing(false);
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -336,6 +344,15 @@ export default function AdminStudents() {
           >
             <Plus className="w-4 h-4" />
             <span>Add Student</span>
+          </button>
+          <button 
+            onClick={handleSync}
+            disabled={isSyncing}
+            className="w-full sm:w-auto flex items-center justify-center space-x-2 bg-slate-800 hover:bg-slate-900 dark:bg-slate-700 dark:hover:bg-slate-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold transition-all shadow-sm hover:shadow-md flex-shrink-0 disabled:opacity-50"
+            title="Reload data and apply changes"
+          >
+            <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
+            <span>Sync Data</span>
           </button>
         </div>
       </header>

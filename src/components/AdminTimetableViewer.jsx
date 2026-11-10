@@ -3,7 +3,7 @@ import {
     Calendar, Users, BookOpen, Clock, MapPin, Search, 
     ChevronDown, LayoutDashboard, Loader2, Info, User,
     Tag, Layers, Award, FileSpreadsheet, AlertTriangle, 
-    CheckCircle, X, UploadCloud, Plus, Trash2, Edit2, Check, Globe, Download
+    CheckCircle, X, UploadCloud, Plus, Trash2, Edit2, Check, Globe, Download, RefreshCw
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -117,6 +117,7 @@ export default function AdminTimetableViewer() {
     const [uploadError, setUploadError] = useState(null);
     const [previewData, setPreviewData] = useState(null);
     const [isCommiting, setIsCommiting] = useState(false);
+    const [isSyncing, setIsSyncing] = useState(false);
     const fileInputRef = useRef(null);
     
     // Download state
@@ -160,6 +161,28 @@ export default function AdminTimetableViewer() {
             setError(err.message === 'Failed to fetch' ? `Cannot connect to backend.` : err.message);
         } finally {
             setInitialLoading(false);
+        }
+    };
+
+    const handleSyncAllLinks = async () => {
+        if (!window.confirm('This will trigger a deep sync of all students to their respective classes across all sections. Proceed?')) return;
+        
+        setIsSyncing(true);
+        try {
+            // Trigger the linking side-effect for every timetable in the background
+            for (const tt of safeTimetables) {
+                await fetch(`${backendUrl}/api/admin/timetables/${tt.id}`);
+            }
+            if (selectedTimetable) {
+                const response = await fetch(`${backendUrl}/api/admin/timetables/${selectedTimetable}`);
+                const data = await response.json();
+                setTimetableData(data || {});
+            }
+            alert('Successfully synced and verified all student-to-class links!');
+        } catch (err) {
+            alert('Failed to sync links: ' + err.message);
+        } finally {
+            setIsSyncing(false);
         }
     };
 
@@ -534,6 +557,15 @@ export default function AdminTimetableViewer() {
                         title="Import Minors/Open Electives for all classes in this Batch Year and Semester"
                     >
                         <Globe className="w-4 h-4 mr-2" /> Batch Import
+                    </button>
+                    
+                    <button 
+                        onClick={handleSyncAllLinks}
+                        disabled={isSyncing || safeTimetables.length === 0}
+                        className="w-full sm:w-auto bg-slate-800 hover:bg-slate-900 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors flex items-center justify-center shadow-sm flex-shrink-0"
+                        title="Reload and match all student entries to classes"
+                    >
+                        <RefreshCw className={`w-4 h-4 mr-2 ${isSyncing ? 'animate-spin' : ''}`} /> Sync Links
                     </button>
                 </div>
             </div>

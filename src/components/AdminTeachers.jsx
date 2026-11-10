@@ -150,6 +150,7 @@ export default function AdminTeachers() {
   const [uploadError, setUploadError] = useState(null);
   const [previewData, setPreviewData] = useState(null);
   const [isCommiting, setIsCommiting] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const fileInputRef = useRef(null);
 
   // Download state
@@ -195,6 +196,12 @@ export default function AdminTeachers() {
     fetchTeachers();
     fetchAllocationOptions();
   }, []);
+
+  const handleSync = async () => {
+    setIsSyncing(true);
+    await Promise.all([fetchTeachers(), fetchAllocationOptions()]);
+    setIsSyncing(false);
+  };
 
   const fetchTeachers = async () => {
     try {
@@ -957,6 +964,15 @@ export default function AdminTeachers() {
             className="w-full sm:w-auto flex-1 sm:flex-none flex items-center justify-center px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold transition-all shadow-sm active:scale-95"
           >
             <Plus className="w-4 h-4 mr-2" /> Add Member
+          </button>
+          
+          <button 
+            onClick={handleSync}
+            disabled={isSyncing}
+            className="w-full sm:w-auto flex-1 sm:flex-none flex items-center justify-center px-4 py-2.5 bg-slate-800 hover:bg-slate-900 dark:bg-slate-700 dark:hover:bg-slate-600 text-white rounded-xl text-sm font-semibold transition-all shadow-sm active:scale-95 disabled:opacity-50"
+            title="Reload all faculty data and allocations"
+          >
+            <RefreshCw className={`w-4 h-4 mr-2 ${isSyncing ? 'animate-spin' : ''}`} /> Sync Data
           </button>
         </div>
       </div>
